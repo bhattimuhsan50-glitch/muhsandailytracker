@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Muhsan's Daily Tracker",
+    "slug": "muhsan-daily-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0a0f"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.muhsantracker.dailytracker"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0a0a0f",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.muhsantracker.dailytracker",
+      "permissions": []
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "backgroundColor": "#0a0a0f"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "ad3fd03e-e825-47fa-9992-76f586fc3eb1"
+      }
+    },
+    "owner": "muhsan"
+  }
+}

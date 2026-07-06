@@ -1,0 +1,60 @@
+# Dependencies - let EAS handle these in cloud
+node_modules
+
+# Native build artifacts - EAS will prebuild entire android directory
+android
+
+# Expo cache
+.expo
+.expo-shared
+
+# Platform-specific builds (we only need Android)
+.ios
+*.xcodeproj
+*.xcworkspace
+*.podspec
+Pods
+
+# Build outputs
+dist
+build
+*.apk
+*.aab
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+docs
+AGENTS.md
+CLAUDE.md
+
+# Config files
+.env.local
+.env.*.local
+
+# Additional exclusions
+.cache
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Previous files
+EAS_BUILD_GUIDE.md
+MuhsanDailyTracker_Enhanced.apk
+PrimeAxisTracker.apk
