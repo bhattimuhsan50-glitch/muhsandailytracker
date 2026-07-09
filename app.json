@@ -26,12 +26,13 @@
       "permissions": []
     },
     "plugins": [
-      {
-        "expo-notifications": {
+      [
+        "expo-notifications",
+        {
           "color": "#7c6aff",
           "defaultChannel": "breath-reminders"
         }
-      }
+      ]
     ],
     "web": {
       "favicon": "./assets/favicon.png",
