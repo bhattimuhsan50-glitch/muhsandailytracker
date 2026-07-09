@@ -25,6 +25,14 @@
       "package": "com.muhsantracker.dailytracker",
       "permissions": []
     },
+    "plugins": [
+      {
+        "expo-notifications": {
+          "color": "#7c6aff",
+          "defaultChannel": "breath-reminders"
+        }
+      }
+    ],
     "web": {
       "favicon": "./assets/favicon.png",
       "backgroundColor": "#0a0a0f"
