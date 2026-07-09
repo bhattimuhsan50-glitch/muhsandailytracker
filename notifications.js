@@ -39,7 +39,9 @@ export async function setupNotifications(onPress) {
 
   // Tap → route the app to the Somatic tab.
   if (onPress) {
-    Notifications.addNotificationResponseReceivedListener(() => onPress());
+    Notifications.addNotificationResponseReceivedListener((response) => {
+      onPress();
+    });
   }
   return true;
 }

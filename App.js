@@ -73,6 +73,9 @@ export default function App() {
   // Per-domain inline add inputs.
   const [domainInputs, setDomainInputs] = useState({});
 
+  // Task reminders: { taskId: time }
+  const [taskReminders, setTaskReminders] = useState({});
+
   // Somatic awareness session entry + history.
   const [somaticData, setSomaticData] = useState({
     focusLevel: null,
@@ -94,6 +97,11 @@ export default function App() {
   // Load saved day whenever the date changes.
   useEffect(() => { loadData(); }, [currentDate]);
 
+  // Load reminder interval on app start
+  useEffect(() => {
+    loadReminderInterval();
+  }, []);
+
   // Set up push notifications and route taps to the Somatic tab.
   useEffect(() => {
     setupNotifications(() => setCurrentPage('somatic'));
@@ -113,15 +121,28 @@ export default function App() {
         })));
         setSomaticLogs(parsed.somaticLogs || []);
         setDailyShutdowns(parsed.dailyShutdowns || []);
+        setTaskReminders(parsed.taskReminders || {});
       } else {
         setTasks({});
         setGoals(defaultGoals());
         setTodayTasks([]);
         setSomaticLogs([]);
         setDailyShutdowns([]);
+        setTaskReminders({});
       }
     } catch (error) {
       console.error('Error loading data:', error);
+    }
+  };
+
+  const loadReminderInterval = async () => {
+    try {
+      const interval = await AsyncStorage.getItem('reminderInterval');
+      if (interval) {
+        setReminderInterval(parseInt(interval));
+      }
+    } catch (error) {
+      console.error('Error loading reminder interval:', error);
     }
   };
 
@@ -133,6 +154,7 @@ export default function App() {
         todayTasks,
         somaticLogs,
         dailyShutdowns,
+        taskReminders,
         date: currentDate,
       };
       await AsyncStorage.setItem(STORAGE_KEY(currentDate), JSON.stringify(dataToSave));
@@ -161,8 +183,18 @@ export default function App() {
     ]);
     setDomainInputs({ ...domainInputs, [domain]: '' });
   };
+  const deleteTask = (taskId) => {
+    setTodayTasks(todayTasks.filter((t) => t.id !== taskId));
+    // Also clean up reminder
+    const newReminders = { ...taskReminders };
+    delete newReminders[taskId];
+    setTaskReminders(newReminders);
+  };
   const setTaskCategory = (taskId, category) => {
     setTodayTasks(todayTasks.map((t) => (t.id === taskId ? { ...t, category } : t)));
+  };
+  const setTaskReminder = (taskId, time) => {
+    setTaskReminders({ ...taskReminders, [taskId]: time });
   };
   const toggleTask = (taskId) => {
     setTasks((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
@@ -225,6 +257,7 @@ export default function App() {
   // ─── Notifications ────────────────────────────────────────────────────────
   const changeReminder = async (hours) => {
     setReminderInterval(hours);
+    await AsyncStorage.setItem('reminderInterval', hours.toString());
     if (hours > 0) {
       await scheduleBreathReminder(hours);
     } else {
@@ -336,6 +369,9 @@ export default function App() {
                           </TouchableOpacity>
                         ))}
                       </View>
+                      <TouchableOpacity onPress={() => deleteTask(task.id)} style={styles.deleteBtn}>
+                        <Text style={styles.deleteBtnText}>🗑</Text>
+                      </TouchableOpacity>
                       <TouchableOpacity onPress={() => toggleTask(task.id)}>
                         <View style={[styles.checkbox, tasks[task.id] && styles.checkboxChecked]}>
                           {tasks[task.id] && <Text style={styles.checkmark}>✓</Text>}
@@ -343,6 +379,23 @@ export default function App() {
                       </TouchableOpacity>
                     </View>
                   ))
+                )}
+                {list.length > 0 && (
+                  <View style={styles.reminderSection}>
+                    <Text style={styles.reminderTitle}>Task Reminders</Text>
+                    {list.map((task) => (
+                      <View key={task.id} style={styles.reminderRow}>
+                        <Text style={styles.reminderTaskText} numberOfLines={1}>{task.text}</Text>
+                        <TextInput
+                          style={styles.reminderInput}
+                          value={taskReminders[task.id] || ''}
+                          onChangeText={(t) => setTaskReminder(task.id, t)}
+                          placeholder="HH:MM"
+                          placeholderTextColor={COLORS.muted}
+                        />
+                      </View>
+                    ))}
+                  </View>
                 )}
               </View>
             );
@@ -361,6 +414,20 @@ export default function App() {
     const done = list.filter((t) => tasks[t.id]).length;
     return { domain, total: list.length, done, rate: list.length ? Math.round((done / list.length) * 100) : 0 };
   });
+
+  const renderBarChart = (stats) => (
+    <View style={styles.chartContainer}>
+      {stats.map((stat) => (
+        <View key={stat.domain} style={styles.chartRow}>
+          <Text style={styles.chartLabel}>{stat.domain}</Text>
+          <View style={styles.chartBarBackground}>
+            <View style={[styles.chartBarFill, { width: `${stat.rate}%` }]} />
+          </View>
+          <Text style={styles.chartValue}>{stat.rate}%</Text>
+        </View>
+      ))}
+    </View>
+  );
 
   const renderAnalytics = () => (
     <View style={styles.page}>
@@ -381,17 +448,23 @@ export default function App() {
         ))}
       </View>
       <ScrollView style={styles.scroll}>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{analyticsView === 'daily' ? 'Today' : analyticsView === 'weekly' ? 'This Week' : 'This Month'} — Domains</Text>
-          {domainStats().map((s) => (
-            <View key={s.domain} style={styles.statRow}>
-              <Text style={styles.statLabel}>{s.domain}</Text>
-              <Text style={styles.statValue}>{s.done}/{s.total} ({s.rate}%)</Text>
-            </View>
-          ))}
-          <View style={[styles.statRow, { marginTop: 8, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 8 }]}>
-            <Text style={[styles.statLabel, { fontWeight: 'bold' }]}>Overall</Text>
-            <Text style={[styles.statValue, { fontWeight: 'bold' }]}>Score: {calculateScore()}%</Text>
+        <View style={styles.chartCard}>
+          <Text style={styles.chartTitle}>Completion Rate by Domain</Text>
+          {renderBarChart(domainStats())}
+        </View>
+        <View style={styles.chartCard}>
+          <Text style={styles.chartTitle}>Task Completion</Text>
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>Total Tasks</Text>
+            <Text style={styles.statValue}>{todayTasks.length}</Text>
+          </View>
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>Completed</Text>
+            <Text style={styles.statValue}>{todayTasks.filter((t) => tasks[t.id]).length}</Text>
+          </View>
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>Completion Rate</Text>
+            <Text style={styles.statValue}>{calculateScore()}%</Text>
           </View>
         </View>
       </ScrollView>
@@ -482,7 +555,7 @@ export default function App() {
               style={[styles.techniqueBtn, reminderInterval === opt.h && styles.techniqueBtnActive]}
               onPress={() => changeReminder(opt.h)}
             >
-              <Text style={[styles.techniqueBtnText, reminderInterval === opt.label && styles.techniqueBtnTextActive]}>{opt.label}</Text>
+              <Text style={[styles.techniqueBtnText, reminderInterval === opt.h && styles.techniqueBtnTextActive]}>{opt.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -507,8 +580,8 @@ export default function App() {
           multiline
           numberOfLines={4}
         />
-        <TouchableOpacity style={styles.saveButton} onPress={completeShutdown}>
-          <Text style={styles.saveButtonText}>SHUTDOWN</Text>
+        <TouchableOpacity style={styles.compactSaveButton} onPress={completeShutdown}>
+          <Text style={styles.compactSaveButtonText}>SHUTDOWN</Text>
         </TouchableOpacity>
 
         <Text style={styles.historyTitle}>Past Reflections</Text>
@@ -574,97 +647,116 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
-  page: { flex: 1, padding: 16 },
-  sectionHeader: { marginBottom: 12 },
-  sectionTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.text },
-  dateLabel: { fontSize: 13, color: COLORS.muted, marginTop: 4 },
+  page: { flex: 1, padding: 12 },
+  sectionHeader: { marginBottom: 8 },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  dateLabel: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
   scroll: { flex: 1 },
 
   // Cards / inputs
-  card: { backgroundColor: COLORS.card, padding: 16, borderRadius: 12, marginBottom: 12 },
-  cardTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
-  input: { backgroundColor: COLORS.surface, borderRadius: 8, padding: 10, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 44 },
-  inputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  addBtn: { backgroundColor: COLORS.accent, borderRadius: 8, marginLeft: 8, paddingHorizontal: 14, paddingVertical: 12 },
-  addBtnText: { color: COLORS.bg, fontWeight: 'bold', fontSize: 18 },
+  card: { backgroundColor: COLORS.card, padding: 12, borderRadius: 12, marginBottom: 8 },
+  cardTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, marginBottom: 6 },
+  input: { backgroundColor: COLORS.surface, borderRadius: 8, padding: 8, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 36 },
+  inputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  addBtn: { backgroundColor: COLORS.accent, borderRadius: 8, marginLeft: 6, paddingHorizontal: 12, paddingVertical: 10 },
+  addBtnText: { color: COLORS.bg, fontWeight: 'bold', fontSize: 16 },
 
   // Progress
-  progressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8 },
-  stepBtn: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 16, paddingVertical: 8, marginHorizontal: 12 },
-  stepBtnText: { color: COLORS.text, fontSize: 20, fontWeight: 'bold' },
-  progressText: { color: COLORS.accent, fontSize: 18, fontWeight: 'bold', minWidth: 60, textAlign: 'center' },
-  progressBar: { height: 8, backgroundColor: COLORS.border, borderRadius: 4, marginTop: 8, overflow: 'hidden' },
-  progressBarFill: { height: 8, backgroundColor: COLORS.accent3 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 6 },
+  stepBtn: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, marginHorizontal: 8 },
+  stepBtnText: { color: COLORS.text, fontSize: 18, fontWeight: 'bold' },
+  progressText: { color: COLORS.accent, fontSize: 16, fontWeight: 'bold', minWidth: 50, textAlign: 'center' },
+  progressBar: { height: 6, backgroundColor: COLORS.border, borderRadius: 3, marginTop: 6, overflow: 'hidden' },
+  progressBarFill: { height: 6, backgroundColor: COLORS.accent3 },
 
   // Date nav
-  dateNav: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  dateButton: { backgroundColor: COLORS.card, borderRadius: 8, padding: 10, marginHorizontal: 4 },
-  dateButtonText: { color: COLORS.text, fontSize: 16 },
-  dateInput: { flex: 1, color: COLORS.text, textAlign: 'center', fontSize: 14 },
-  todayButton: { backgroundColor: COLORS.accent, borderRadius: 8, padding: 10 },
-  todayButtonText: { color: COLORS.bg, fontWeight: 'bold' },
+  dateNav: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  dateButton: { backgroundColor: COLORS.card, borderRadius: 8, padding: 8, marginHorizontal: 3 },
+  dateButtonText: { color: COLORS.text, fontSize: 14 },
+  dateInput: { flex: 1, color: COLORS.text, textAlign: 'center', fontSize: 12 },
+  todayButton: { backgroundColor: COLORS.accent, borderRadius: 8, padding: 8 },
+  todayButtonText: { color: COLORS.bg, fontWeight: 'bold', fontSize: 12 },
 
   // Score
-  scoreContainer: { backgroundColor: COLORS.card, padding: 16, borderRadius: 12, marginBottom: 12, alignItems: 'center' },
-  scoreText: { fontSize: 48, fontWeight: 'bold', color: COLORS.accent },
-  scoreMessage: { fontSize: 16, color: COLORS.text, marginTop: 8 },
+  scoreContainer: { backgroundColor: COLORS.card, padding: 12, borderRadius: 12, marginBottom: 8, alignItems: 'center' },
+  scoreText: { fontSize: 36, fontWeight: 'bold', color: COLORS.accent },
+  scoreMessage: { fontSize: 14, color: COLORS.text, marginTop: 4 },
 
   // Task rows
-  taskRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, flexWrap: 'wrap' },
-  catBadge: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
-  catBadgeText: { color: COLORS.bg, fontWeight: 'bold', fontSize: 12 },
-  taskText: { flex: 1, color: COLORS.text, fontSize: 15 },
+  taskRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, flexWrap: 'wrap' },
+  catBadge: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 6 },
+  catBadgeText: { color: COLORS.bg, fontWeight: 'bold', fontSize: 10 },
+  taskText: { flex: 1, color: COLORS.text, fontSize: 14 },
   taskTextDone: { textDecorationLine: 'line-through', color: COLORS.muted },
-  priorityBtns: { flexDirection: 'row', marginRight: 8 },
-  priorityBtn: { paddingHorizontal: 6, paddingVertical: 4, borderRadius: 6, backgroundColor: COLORS.surface, marginHorizontal: 2 },
+  priorityBtns: { flexDirection: 'row', marginRight: 6 },
+  priorityBtn: { paddingHorizontal: 4, paddingVertical: 3, borderRadius: 6, backgroundColor: COLORS.surface, marginHorizontal: 1 },
   priorityBtnActive: { backgroundColor: COLORS.accent },
-  priorityBtnText: { color: COLORS.muted, fontSize: 12, fontWeight: 'bold' },
+  priorityBtnText: { color: COLORS.muted, fontSize: 10, fontWeight: 'bold' },
   priorityBtnTextActive: { color: COLORS.bg },
-  checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: COLORS.muted, alignItems: 'center', justifyContent: 'center' },
+  deleteBtn: { marginLeft: 4, padding: 4 },
+  deleteBtnText: { fontSize: 16 },
+  checkbox: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: COLORS.muted, alignItems: 'center', justifyContent: 'center' },
   checkboxChecked: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  checkmark: { color: COLORS.bg, fontWeight: 'bold' },
+  checkmark: { color: COLORS.bg, fontWeight: 'bold', fontSize: 12 },
+
+  // Task reminders
+  reminderSection: { marginTop: 8, padding: 8, backgroundColor: COLORS.surface, borderRadius: 8 },
+  reminderTitle: { fontSize: 12, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 },
+  reminderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  reminderTaskText: { flex: 1, color: COLORS.text, fontSize: 12, marginRight: 8 },
+  reminderInput: { backgroundColor: COLORS.card, borderRadius: 6, padding: 6, color: COLORS.text, fontSize: 12, width: 80, borderWidth: 1, borderColor: COLORS.border },
 
   // Somatic
-  question: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, marginBottom: 16, textAlign: 'center' },
-  promptText: { fontSize: 14, color: COLORS.muted, marginTop: 16, marginBottom: 8 },
+  question: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 12, textAlign: 'center' },
+  promptText: { fontSize: 12, color: COLORS.muted, marginTop: 12, marginBottom: 6 },
   percentGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  percentBtn: { width: '18%', backgroundColor: COLORS.surface, borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginVertical: 4, borderWidth: 1, borderColor: COLORS.border },
+  percentBtn: { width: '18%', backgroundColor: COLORS.surface, borderRadius: 6, paddingVertical: 10, alignItems: 'center', marginVertical: 3, borderWidth: 1, borderColor: COLORS.border },
   percentBtnActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  percentBtnText: { color: COLORS.text, fontWeight: 'bold' },
+  percentBtnText: { color: COLORS.text, fontWeight: 'bold', fontSize: 12 },
   percentBtnTextActive: { color: COLORS.bg },
   techniqueRow: { flexDirection: 'row', flexWrap: 'wrap' },
-  techniqueBtn: { backgroundColor: COLORS.surface, borderRadius: 8, paddingVertical: 12, paddingHorizontal: 14, marginVertical: 4, marginRight: 8, borderWidth: 1, borderColor: COLORS.border },
+  techniqueBtn: { backgroundColor: COLORS.surface, borderRadius: 6, paddingVertical: 10, paddingHorizontal: 12, marginVertical: 3, marginRight: 6, borderWidth: 1, borderColor: COLORS.border },
   techniqueBtnActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  techniqueBtnText: { color: COLORS.text },
+  techniqueBtnText: { color: COLORS.text, fontSize: 12 },
   techniqueBtnTextActive: { color: COLORS.bg },
 
   // History
-  historyTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginTop: 20, marginBottom: 8 },
-  historyItem: { backgroundColor: COLORS.card, borderRadius: 8, padding: 12, marginBottom: 8 },
-  historyDate: { color: COLORS.accent, fontSize: 12, marginBottom: 4 },
-  historyText: { color: COLORS.text, fontSize: 14 },
-  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 16 },
+  historyTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, marginTop: 16, marginBottom: 6 },
+  historyItem: { backgroundColor: COLORS.card, borderRadius: 6, padding: 10, marginBottom: 6 },
+  historyDate: { color: COLORS.accent, fontSize: 11, marginBottom: 3 },
+  historyText: { color: COLORS.text, fontSize: 12 },
+  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 12 },
 
   // Analytics
-  analyticsTabs: { flexDirection: 'row', marginBottom: 12 },
-  analyticsTab: { flex: 1, padding: 10, backgroundColor: COLORS.card, borderRadius: 8, marginHorizontal: 4, alignItems: 'center' },
+  analyticsTabs: { flexDirection: 'row', marginBottom: 8 },
+  analyticsTab: { flex: 1, padding: 8, backgroundColor: COLORS.card, borderRadius: 6, marginHorizontal: 3, alignItems: 'center' },
   analyticsTabActive: { backgroundColor: COLORS.accent },
-  analyticsTabText: { color: COLORS.text },
+  analyticsTabText: { color: COLORS.text, fontSize: 12 },
   analyticsTabTextActive: { color: COLORS.bg, fontWeight: 'bold' },
-  statRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
-  statLabel: { color: COLORS.text, flex: 1 },
-  statValue: { color: COLORS.muted },
+  chartCard: { backgroundColor: COLORS.card, padding: 12, borderRadius: 12, marginBottom: 8 },
+  chartTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
+  chartContainer: { backgroundColor: COLORS.surface, padding: 8, borderRadius: 8 },
+  chartRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  chartLabel: { width: 80, color: COLORS.text, fontSize: 12 },
+  chartBarBackground: { flex: 1, height: 8, backgroundColor: COLORS.border, borderRadius: 4, marginHorizontal: 8 },
+  chartBarFill: { height: 8, backgroundColor: COLORS.accent3, borderRadius: 4 },
+  chartValue: { width: 40, color: COLORS.text, fontSize: 12, textAlign: 'right' },
+  statRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  statLabel: { color: COLORS.text, flex: 1, fontSize: 12 },
+  statValue: { color: COLORS.muted, fontSize: 12 },
 
   // Common
-  emptyText: { color: COLORS.muted, fontStyle: 'italic', paddingVertical: 8 },
-  saveButton: { backgroundColor: COLORS.accent, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 16 },
-  saveButtonText: { color: COLORS.bg, fontSize: 16, fontWeight: 'bold' },
+  emptyText: { color: COLORS.muted, fontStyle: 'italic', paddingVertical: 6 },
+  saveButton: { backgroundColor: COLORS.accent, padding: 12, borderRadius: 12, alignItems: 'center', marginTop: 12 },
+  saveButtonText: { color: COLORS.bg, fontSize: 14, fontWeight: 'bold' },
+  compactSaveButton: { backgroundColor: COLORS.accent, padding: 10, borderRadius: 12, alignItems: 'center', marginTop: 12 },
+  compactSaveButtonText: { color: COLORS.bg, fontSize: 12, fontWeight: 'bold' },
 
   // Navigation
-  navigation: { flexDirection: 'row', backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border, paddingBottom: 8 },
-  navItem: { flex: 1, alignItems: 'center', paddingVertical: 10 },
+  navigation: { flexDirection: 'row', backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border, paddingBottom: 6 },
+  navItem: { flex: 1, alignItems: 'center', paddingVertical: 8 },
   navItemActive: { borderTopWidth: 2, borderTopColor: COLORS.accent },
-  navIcon: { fontSize: 22 },
-  navLabel: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
+  navIcon: { fontSize: 18 },
+  navLabel: { color: COLORS.muted, fontSize: 10, marginTop: 2 },
   navLabelActive: { color: COLORS.accent, fontWeight: 'bold' },
 });
