@@ -9,8 +9,10 @@ import {
   Alert,
   StatusBar,
   SafeAreaView,
+  LayoutAnimation,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Svg, Circle } from 'react-native-svg';
 import {
   setupNotifications,
   scheduleBreathReminder,
@@ -18,42 +20,44 @@ import {
 } from './notifications';
 
 const COLORS = {
-  bg: '#0a0a0f',
-  surface: '#111118',
-  card: '#16161f',
-  border: '#1e1e2e',
-  accent: '#7c6aff',
-  accent2: '#ff6a6a',
-  accent3: '#6affb0',
-  text: '#e8e8f0',
-  muted: '#6b6b80',
-  gold: '#ffd166',
+  bg: '#0A0A0F',
+  surface: '#12121A',
+  card: '#1A1A26',
+  border: '#2A2A3D',
+  accent: '#7C5CFC',
+  accent2: '#A97BFF',
+  text: '#F0EFF8',
+  muted: '#6B6B8A',
+  green: '#22C87A',
+  amber: '#F5A623',
+  red: '#FF5C72',
+  dim: '#3A3A55',
 };
 
 const CATEGORY_COLORS = {
-  A: '#ff6a6a',
-  B: '#ffd166',
-  C: '#7c6aff',
-  D: '#6affb0',
-  E: '#6b6b80',
+  A: '#FF5C72',
+  B: '#F5A623',
+  C: '#22C87A',
+  D: '#6B6B8A',
+  E: '#6B6B8A',
 };
 
 // The seven life domains shared across Goals and Today tabs.
 const LIFE_DOMAINS = [
-  'Career',
-  'Money',
-  'Family',
-  'Friends',
-  'Fun',
-  'Health',
-  'Personal Growth',
+  { name: 'Career', icon: '💼' },
+  { name: 'Money', icon: '💰' },
+  { name: 'Family', icon: '👨‍👩‍👧‍👦' },
+  { name: 'Friends', icon: '👥' },
+  { name: 'Fun', icon: '🎮' },
+  { name: 'Health', icon: '❤️' },
+  { name: 'Personal Growth', icon: '🌱' },
 ];
 
 const PRIORITY_ORDER = ['A', 'B', 'C', 'D', 'E'];
 
 const defaultGoals = () => {
   const g = {};
-  LIFE_DOMAINS.forEach((d) => { g[d] = { goalText: '', progress: 0 }; });
+  LIFE_DOMAINS.forEach((d) => { g[d.name] = { goalText: '', progress: 0 }; });
   return g;
 };
 
@@ -75,6 +79,9 @@ export default function App() {
 
   // Task reminders: { taskId: time }
   const [taskReminders, setTaskReminders] = useState({});
+
+  // Domain expansion state
+  const [expandedDomains, setExpandedDomains] = useState({});
 
   // Somatic awareness session entry + history.
   const [somaticData, setSomaticData] = useState({
@@ -122,6 +129,7 @@ export default function App() {
         setSomaticLogs(parsed.somaticLogs || []);
         setDailyShutdowns(parsed.dailyShutdowns || []);
         setTaskReminders(parsed.taskReminders || {});
+        setExpandedDomains(parsed.expandedDomains || {});
       } else {
         setTasks({});
         setGoals(defaultGoals());
@@ -129,6 +137,7 @@ export default function App() {
         setSomaticLogs([]);
         setDailyShutdowns([]);
         setTaskReminders({});
+        setExpandedDomains({});
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -155,6 +164,7 @@ export default function App() {
         somaticLogs,
         dailyShutdowns,
         taskReminders,
+        expandedDomains,
         date: currentDate,
       };
       await AsyncStorage.setItem(STORAGE_KEY(currentDate), JSON.stringify(dataToSave));
@@ -169,8 +179,12 @@ export default function App() {
     setGoals({ ...goals, [domain]: { ...goals[domain], goalText: text } });
   };
   const updateGoalProgress = (domain, delta) => {
-    const next = Math.max(0, Math.min(100, (goals[domain].progress || 0) + delta));
+    const next = Math.max(0, Math.min(100, (goals[domain]?.progress || 0) + delta));
     setGoals({ ...goals, [domain]: { ...goals[domain], progress: next } });
+  };
+  const toggleDomain = (domain) => {
+    LayoutAnimation.easeInEaseOut();
+    setExpandedDomains({ ...expandedDomains, [domain]: !expandedDomains[domain] });
   };
 
   // ─── Today tasks ──────────────────────────────────────────────────────────
@@ -207,6 +221,43 @@ export default function App() {
     if (todayTasks.length === 0) return 0;
     const completed = todayTasks.filter((t) => tasks[t.id]).length;
     return Math.round((completed / todayTasks.length) * 100);
+  };
+
+  const ProgressRing = ({ progress }) => {
+    const radius = 36;
+    const strokeWidth = 7;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (progress / 100) * circumference;
+
+    return (
+      <View style={styles.progressRingWrap}>
+        <Svg width={80} height={80} style={styles.ringContainer}>
+          <Circle
+            stroke={COLORS.border}
+            strokeWidth={strokeWidth}
+            fill="transparent"
+            r={radius}
+            cx={40}
+            cy={40}
+          />
+          <Circle
+            stroke={COLORS.accent}
+            strokeWidth={strokeWidth}
+            fill="transparent"
+            r={radius}
+            cx={40}
+            cy={40}
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+          />
+        </Svg>
+        <View style={styles.ringLabel}>
+          <Text style={styles.ringPct}>{progress}%</Text>
+          <Text style={styles.ringSub}>Done</Text>
+        </View>
+      </View>
+    );
   };
   const getScoreMessage = (score) => {
     if (score < 25) return 'Log your day 💪';
@@ -275,31 +326,51 @@ export default function App() {
         </Text>
       </View>
       <ScrollView style={styles.scroll}>
-        {LIFE_DOMAINS.map((domain) => (
-          <View key={domain} style={styles.card}>
-            <Text style={styles.cardTitle}>{domain}</Text>
-            <TextInput
-              style={styles.input}
-              value={goals[domain]?.goalText || ''}
-              onChangeText={(t) => updateGoalText(domain, t)}
-              placeholder={`Long-term goal for ${domain}...`}
-              placeholderTextColor={COLORS.muted}
-              multiline
-            />
-            <View style={styles.progressRow}>
-              <TouchableOpacity style={styles.stepBtn} onPress={() => updateGoalProgress(domain, -10)}>
-                <Text style={styles.stepBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.progressText}>{goals[domain]?.progress || 0}%</Text>
-              <TouchableOpacity style={styles.stepBtn} onPress={() => updateGoalProgress(domain, 10)}>
-                <Text style={styles.stepBtnText}>+</Text>
-              </TouchableOpacity>
+        {LIFE_DOMAINS.map((domain) => {
+          const goal = goals[domain.name];
+          const hasGoal = goal && goal.goalText && goal.goalText.trim().length > 0;
+          
+          return (
+            <View key={domain.name} style={[styles.goalCard, !hasGoal && styles.goalCardEmpty]}>
+              <View style={styles.goalDomainRow}>
+                <View style={styles.goalDomainName}>
+                  <Text style={styles.domainIcon}>{domain.icon}</Text>
+                  <Text style={styles.goalDomainText}>{domain.name}</Text>
+                </View>
+                <View style={styles.progressRow}>
+                  <TouchableOpacity style={styles.stepBtn} onPress={() => updateGoalProgress(domain.name, -10)}>
+                    <Text style={styles.stepBtnText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.progressText}>{goal?.progress || 0}%</Text>
+                  <TouchableOpacity style={styles.stepBtn} onPress={() => updateGoalProgress(domain.name, 10)}>
+                    <Text style={styles.stepBtnText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              
+              {hasGoal ? (
+                <TextInput
+                  style={styles.goalInput}
+                  value={goal.goalText}
+                  onChangeText={(t) => updateGoalText(domain.name, t)}
+                  placeholder={`Long-term goal for ${domain.name}...`}
+                  placeholderTextColor={COLORS.muted}
+                  multiline
+                />
+              ) : (
+                <View style={styles.goalTextPreview}>
+                  <Text style={styles.goalPlaceholder}>No goal set yet — tap to add</Text>
+                </View>
+              )}
+              
+              <View style={styles.goalProgressRow}>
+                <View style={styles.progressBarTrack}>
+                  <View style={[styles.progressBarFill, { width: `${goal?.progress || 0}%` }]} />
+                </View>
+              </View>
             </View>
-            <View style={styles.progressBar}>
-              <View style={[styles.progressBarFill, { width: `${goals[domain]?.progress || 0}%` }]} />
-            </View>
-          </View>
-        ))}
+          );
+        })}
         <TouchableOpacity style={styles.saveButton} onPress={() => saveData()}>
           <Text style={styles.saveButtonText}>Save Goals</Text>
         </TouchableOpacity>
@@ -310,6 +381,7 @@ export default function App() {
   // ─── Render: Today ────────────────────────────────────────────────────────
   const renderTodayPage = () => {
     const score = calculateScore();
+    const completed = todayTasks.filter((t) => tasks[t.id]).length;
     return (
       <View style={styles.page}>
         <View style={styles.sectionHeader}>
@@ -327,74 +399,108 @@ export default function App() {
             <Text style={styles.todayButtonText}>Today</Text>
           </TouchableOpacity>
         </View>
+        
         <View style={styles.scoreContainer}>
-          <Text style={styles.scoreText}>{score}%</Text>
-          <Text style={styles.scoreMessage}>{getScoreMessage(score)}</Text>
+          <ProgressRing progress={score} />
+          <Text style={styles.ringCaption}>{completed} of {todayTasks.length} tasks completed</Text>
         </View>
+        
         <ScrollView style={styles.scroll}>
           {LIFE_DOMAINS.map((domain) => {
-            const list = sortedTasks(domain);
+            const list = sortedTasks(domain.name);
+            const isExpanded = expandedDomains[domain.name];
+            const count = list.length;
+            
             return (
-              <View key={domain} style={styles.card}>
-                <Text style={styles.cardTitle}>{domain}</Text>
-                <View style={styles.inputRow}>
-                  <TextInput
-                    style={styles.input}
-                    value={domainInputs[domain] || ''}
-                    onChangeText={(t) => setDomainInputs({ ...domainInputs, [domain]: t })}
-                    placeholder={`Add a ${domain} task...`}
-                    placeholderTextColor={COLORS.muted}
-                  />
-                  <TouchableOpacity style={styles.addBtn} onPress={() => addDomainTask(domain)}>
-                    <Text style={styles.addBtnText}>+</Text>
-                  </TouchableOpacity>
-                </View>
-                {list.length === 0 ? (
-                  <Text style={styles.emptyText}>No tasks.</Text>
-                ) : (
-                  list.map((task) => (
-                    <View key={task.id} style={styles.taskRow}>
-                      <View style={[styles.catBadge, { backgroundColor: CATEGORY_COLORS[task.category] }]}>
-                        <Text style={styles.catBadgeText}>{task.category}</Text>
+              <View key={domain.name} style={styles.domainSection}>
+                <TouchableOpacity 
+                  style={styles.domainHeader}
+                  onPress={() => toggleDomain(domain.name)}
+                >
+                  <View style={styles.domainName}>
+                    <Text style={styles.domainIcon}>{domain.icon}</Text>
+                    <Text style={styles.domainText}>{domain.name}</Text>
+                  </View>
+                  <View style={styles.domainMeta}>
+                    <View style={styles.domainCount}>
+                      <Text style={styles.domainCountText}>{count}</Text>
+                    </View>
+                    {count > 0 && (
+                      <View style={[styles.priorityBadge, { backgroundColor: CATEGORY_COLORS[list[0].category] + '20', borderColor: CATEGORY_COLORS[list[0].category] + '40' }]}>
+                        <Text style={[styles.priorityBadgeText, { color: CATEGORY_COLORS[list[0].category] }]}>{list[0].category}</Text>
                       </View>
-                      <Text style={[styles.taskText, tasks[task.id] && styles.taskTextDone]}>{task.text}</Text>
-                      <View style={styles.priorityBtns}>
-                        {PRIORITY_ORDER.map((cat) => (
-                          <TouchableOpacity
-                            key={cat}
-                            onPress={() => setTaskCategory(task.id, cat)}
-                            style={[styles.priorityBtn, task.category === cat && styles.priorityBtnActive]}
-                          >
-                            <Text style={[styles.priorityBtnText, task.category === cat && styles.priorityBtnTextActive]}>{cat}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                      <TouchableOpacity onPress={() => deleteTask(task.id)} style={styles.deleteBtn}>
-                        <Text style={styles.deleteBtnText}>🗑</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => toggleTask(task.id)}>
-                        <View style={[styles.checkbox, tasks[task.id] && styles.checkboxChecked]}>
-                          {tasks[task.id] && <Text style={styles.checkmark}>✓</Text>}
-                        </View>
+                    )}
+                    <Text style={styles.chevron}>{isExpanded ? '▼' : '▶'}</Text>
+                  </View>
+                </TouchableOpacity>
+                
+                {isExpanded && (
+                  <View style={styles.expandedContent}>
+                    <View style={styles.taskInputRow}>
+                      <TextInput
+                        style={styles.taskInput}
+                        value={domainInputs[domain.name] || ''}
+                        onChangeText={(t) => setDomainInputs({ ...domainInputs, [domain.name]: t })}
+                        placeholder={`Add a ${domain.name} task...`}
+                        placeholderTextColor={COLORS.muted}
+                      />
+                      <TouchableOpacity style={styles.addBtn} onPress={() => addDomainTask(domain.name)}>
+                        <Text style={styles.addBtnText}>+</Text>
                       </TouchableOpacity>
                     </View>
-                  ))
-                )}
-                {list.length > 0 && (
-                  <View style={styles.reminderSection}>
-                    <Text style={styles.reminderTitle}>Task Reminders</Text>
-                    {list.map((task) => (
-                      <View key={task.id} style={styles.reminderRow}>
-                        <Text style={styles.reminderTaskText} numberOfLines={1}>{task.text}</Text>
-                        <TextInput
-                          style={styles.reminderInput}
-                          value={taskReminders[task.id] || ''}
-                          onChangeText={(t) => setTaskReminder(task.id, t)}
-                          placeholder="HH:MM"
-                          placeholderTextColor={COLORS.muted}
-                        />
+                    
+                    {list.length === 0 ? (
+                      <View style={styles.emptyState}>
+                        <Text style={styles.emptyIcon}>📋</Text>
+                        <Text style={styles.emptyText}>No tasks yet — tap + to add your first</Text>
                       </View>
-                    ))}
+                    ) : (
+                      list.map((task) => (
+                        <View key={task.id} style={styles.taskRow}>
+                          <View style={[styles.catBadge, { backgroundColor: CATEGORY_COLORS[task.category] }]}>
+                            <Text style={styles.catBadgeText}>{task.category}</Text>
+                          </View>
+                          <Text style={[styles.taskText, tasks[task.id] && styles.taskTextDone]}>{task.text}</Text>
+                          <View style={styles.priorityBtns}>
+                            {PRIORITY_ORDER.map((cat) => (
+                              <TouchableOpacity
+                                key={cat}
+                                onPress={() => setTaskCategory(task.id, cat)}
+                                style={[styles.priorityBtn, task.category === cat && styles.priorityBtnActive]}
+                              >
+                                <Text style={[styles.priorityBtnText, task.category === cat && styles.priorityBtnTextActive]}>{cat}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                          <TouchableOpacity onPress={() => deleteTask(task.id)} style={styles.deleteBtn}>
+                            <Text style={styles.deleteBtnText}>🗑</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => toggleTask(task.id)}>
+                            <View style={[styles.checkbox, tasks[task.id] && styles.checkboxChecked]}>
+                              {tasks[task.id] && <Text style={styles.checkmark}>✓</Text>}
+                            </View>
+                          </TouchableOpacity>
+                        </View>
+                      ))
+                    )}
+                    
+                    {list.length > 0 && (
+                      <View style={styles.reminderSection}>
+                        <Text style={styles.reminderTitle}>Task Reminders</Text>
+                        {list.map((task) => (
+                          <View key={task.id} style={styles.reminderRow}>
+                            <Text style={styles.reminderTaskText} numberOfLines={1}>{task.text}</Text>
+                            <TextInput
+                              style={styles.reminderInput}
+                              value={taskReminders[task.id] || ''}
+                              onChangeText={(t) => setTaskReminder(task.id, t)}
+                              placeholder="HH:MM"
+                              placeholderTextColor={COLORS.muted}
+                            />
+                          </View>
+                        ))}
+                      </View>
+                    )}
                   </View>
                 )}
               </View>
@@ -410,9 +516,9 @@ export default function App() {
 
   // ─── Render: Analytics ────────────────────────────────────────────────────
   const domainStats = () => LIFE_DOMAINS.map((domain) => {
-    const list = todayTasks.filter((t) => t.domain === domain);
+    const list = todayTasks.filter((t) => t.domain === domain.name);
     const done = list.filter((t) => tasks[t.id]).length;
-    return { domain, total: list.length, done, rate: list.length ? Math.round((done / list.length) * 100) : 0 };
+    return { domain: domain.name, total: list.length, done, rate: list.length ? Math.round((done / list.length) * 100) : 0 };
   });
 
   const renderBarChart = (stats) => (
@@ -429,47 +535,81 @@ export default function App() {
     </View>
   );
 
-  const renderAnalytics = () => (
-    <View style={styles.page}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Analytics</Text>
-      </View>
-      <View style={styles.analyticsTabs}>
-        {['daily', 'weekly', 'monthly'].map((v) => (
-          <TouchableOpacity
-            key={v}
-            style={[styles.analyticsTab, analyticsView === v && styles.analyticsTabActive]}
-            onPress={() => setAnalyticsView(v)}
-          >
-            <Text style={[styles.analyticsTabText, analyticsView === v && styles.analyticsTabTextActive]}>
-              {v.charAt(0).toUpperCase() + v.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      <ScrollView style={styles.scroll}>
-        <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Completion Rate by Domain</Text>
-          {renderBarChart(domainStats())}
+  const renderAnalytics = () => {
+    const score = calculateScore();
+    const completed = todayTasks.filter((t) => tasks[t.id]).length;
+    
+    return (
+      <View style={styles.page}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Analytics</Text>
         </View>
-        <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Task Completion</Text>
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Total Tasks</Text>
-            <Text style={styles.statValue}>{todayTasks.length}</Text>
-          </View>
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Completed</Text>
-            <Text style={styles.statValue}>{todayTasks.filter((t) => tasks[t.id]).length}</Text>
-          </View>
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Completion Rate</Text>
-            <Text style={styles.statValue}>{calculateScore()}%</Text>
-          </View>
+        <View style={styles.analyticsTabs}>
+          {['daily', 'weekly', 'monthly'].map((v) => (
+            <TouchableOpacity
+              key={v}
+              style={[styles.analyticsTab, analyticsView === v && styles.analyticsTabActive]}
+              onPress={() => setAnalyticsView(v)}
+            >
+              <Text style={[styles.analyticsTabText, analyticsView === v && styles.analyticsTabTextActive]}>
+                {v.charAt(0).toUpperCase() + v.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
-      </ScrollView>
-    </View>
-  );
+        <ScrollView style={styles.scroll}>
+          <View style={styles.statRow}>
+            <View style={styles.statBox}>
+              <Text style={[styles.statValue, { color: COLORS.green }]}>0</Text>
+              <Text style={styles.statLabel}>STREAK</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>{todayTasks.length}</Text>
+              <Text style={styles.statLabel}>TASKS</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>{score}%</Text>
+              <Text style={styles.statLabel}>RATE</Text>
+            </View>
+          </View>
+          
+          <View style={styles.heatmapSection}>
+            <Text style={styles.heatmapTitle}>Activity</Text>
+            <View style={styles.heatmapDays}>
+              {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day) => (
+                <Text key={day} style={styles.heatmapDayLabel}>{day}</Text>
+              ))}
+            </View>
+            <View style={styles.heatmapGrid}>
+              {Array(28).fill(0).map((_, i) => (
+                <View key={i} style={[styles.heatmapCell, { backgroundColor: COLORS.dim }]} />
+              ))}
+            </View>
+          </View>
+          
+          <View style={styles.chartCard}>
+            <Text style={styles.chartTitle}>Completion Rate by Domain</Text>
+            {renderBarChart(domainStats())}
+          </View>
+          <View style={styles.chartCard}>
+            <Text style={styles.chartTitle}>Task Completion</Text>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Total Tasks</Text>
+              <Text style={styles.statValue}>{todayTasks.length}</Text>
+            </View>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Completed</Text>
+              <Text style={styles.statValue}>{completed}</Text>
+            </View>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Completion Rate</Text>
+              <Text style={styles.statValue}>{score}%</Text>
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  };
 
   // ─── Render: Somatic ──────────────────────────────────────────────────────
   const renderSomaticPage = () => (
@@ -514,36 +654,37 @@ export default function App() {
         />
 
         <Text style={styles.promptText}>Technique for moving on work</Text>
-        <View style={styles.techniqueRow}>
-          {['Present Past Game', 'Opportunity Game'].map((tech) => (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+          {['⚡ Present-Past Game', '🔄 Opportunity Game'].map((tech) => (
             <TouchableOpacity
               key={tech}
-              style={[styles.techniqueBtn, somaticData.technique === tech && styles.techniqueBtnActive]}
+              style={[styles.chip, somaticData.technique === tech && styles.chipActive]}
               onPress={() => setSomaticData({ ...somaticData, technique: tech })}
             >
-              <Text style={[styles.techniqueBtnText, somaticData.technique === tech && styles.techniqueBtnTextActive]}>{tech}</Text>
+              <Text style={[styles.chipText, somaticData.technique === tech && styles.chipTextActive]}>{tech}</Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
 
         <TouchableOpacity style={styles.saveButton} onPress={logSomaticState}>
           <Text style={styles.saveButtonText}>Save / Submit</Text>
         </TouchableOpacity>
 
-        <Text style={styles.historyTitle}>Today's Sessions</Text>
-        {somaticLogs.length === 0 ? (
-          <Text style={styles.emptyText}>No entries yet.</Text>
-        ) : (
-          somaticLogs.slice().reverse().map((log) => (
-            <View key={log.id} style={styles.historyItem}>
-              <Text style={styles.historyDate}>
-                {new Date(log.timestamp).toLocaleString()} · Focus {log.focusLevel || '—'}%
-              </Text>
-              {log.thoughts ? <Text style={styles.historyText}>Thoughts: {log.thoughts}</Text> : null}
-              {log.thoughtLabel ? <Text style={styles.historyText}>Label: {log.thoughtLabel}</Text> : null}
-              {log.technique ? <Text style={styles.historyText}>Technique: {log.technique}</Text> : null}
-            </View>
-          ))
+        <View style={styles.divider} />
+        {somaticLogs.length > 0 && (
+          <>
+            {somaticLogs.slice().reverse().map((log) => (
+              <View key={log.id} style={styles.sessionCard}>
+                <View style={styles.sessionHeader}>
+                  <Text style={styles.sessionTime}>
+                    {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · Focus {log.focusLevel || '—'}% · {log.thoughtLabel || 'No label'}
+                  </Text>
+                  <Text style={styles.sessionTechnique}>{log.technique || 'No technique'}</Text>
+                </View>
+                {log.thoughts && <Text style={styles.sessionThoughts}>{log.thoughts}</Text>}
+              </View>
+            ))}
+          </>
         )}
 
         <View style={styles.divider} />
@@ -564,40 +705,69 @@ export default function App() {
   );
 
   // ─── Render: Shutdown ─────────────────────────────────────────────────────
-  const renderShutdownPage = () => (
-    <View style={styles.page}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Shutdown Ritual</Text>
-      </View>
-      <ScrollView style={styles.scroll}>
-        <Text style={styles.promptText}>Reflection — how did today go?</Text>
-        <TextInput
-          style={styles.input}
-          value={shutdownReflection}
-          onChangeText={setShutdownReflection}
-          placeholder="Write your reflection..."
-          placeholderTextColor={COLORS.muted}
-          multiline
-          numberOfLines={4}
-        />
-        <TouchableOpacity style={styles.compactSaveButton} onPress={completeShutdown}>
-          <Text style={styles.compactSaveButtonText}>SHUTDOWN</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.historyTitle}>Past Reflections</Text>
-        {dailyShutdowns.length === 0 ? (
-          <Text style={styles.emptyText}>No past reflections.</Text>
-        ) : (
-          dailyShutdowns.slice().reverse().map((s) => (
-            <View key={s.id} style={styles.historyItem}>
-              <Text style={styles.historyDate}>{s.date}</Text>
-              <Text style={styles.historyText}>{s.reflection || '(no reflection written)'}</Text>
+  const renderShutdownPage = () => {
+    const score = calculateScore();
+    const completed = todayTasks.filter((t) => tasks[t.id]).length;
+    
+    return (
+      <View style={styles.page}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Shutdown Ritual</Text>
+        </View>
+        <ScrollView style={styles.scroll}>
+          <View style={styles.heroCard}>
+            <Text style={styles.heroEmoji}>🌙</Text>
+            <Text style={styles.heroTitle}>Close the day with intention</Text>
+            <Text style={styles.heroDate}>{currentDate}</Text>
+          </View>
+          
+          <View style={styles.statRow}>
+            <View style={styles.statBox}>
+              <Text style={[styles.statValue, { color: COLORS.green }]}>{completed}</Text>
+              <Text style={styles.statLabel}>TASKS DONE</Text>
             </View>
-          ))
-        )}
-      </ScrollView>
-    </View>
-  );
+            <View style={styles.statBox}>
+              <Text style={[styles.statValue, { color: COLORS.amber }]}>{score}%</Text>
+              <Text style={styles.statLabel}>COMPLETION</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={[styles.statValue, { color: COLORS.accent2 }]}>{somaticLogs.length}</Text>
+              <Text style={styles.statLabel}>SOMATIC LOGS</Text>
+            </View>
+          </View>
+          
+          <Text style={styles.promptText}>Reflection — how did today go?</Text>
+          <TextInput
+            style={styles.input}
+            value={shutdownReflection}
+            onChangeText={setShutdownReflection}
+            placeholder="Write your reflection..."
+            placeholderTextColor={COLORS.muted}
+            multiline
+            numberOfLines={4}
+          />
+          <TouchableOpacity style={styles.compactSaveButton} onPress={completeShutdown}>
+            <Text style={styles.compactSaveButtonText}>SHUTDOWN</Text>
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
+          {dailyShutdowns.length > 0 && (
+            <>
+              {dailyShutdowns.slice().reverse().map((s) => (
+                <View key={s.id} style={styles.reflectionCard}>
+                  <View style={styles.reflectionHeader}>
+                    <Text style={styles.reflectionDate}>{s.date}</Text>
+                    <Text style={styles.reflectionScore}>· 64% complete</Text>
+                  </View>
+                  <Text style={styles.reflectionText}>{s.reflection || '(no reflection written)'}</Text>
+                </View>
+              ))}
+            </>
+          )}
+        </ScrollView>
+      </View>
+    );
+  };
 
   // ─── Render: Navigation ───────────────────────────────────────────────────
   // Single icon + plain label per tab (no duplicated/stacked icons).
@@ -619,6 +789,7 @@ export default function App() {
           >
             <Text style={styles.navIcon}>{page.icon}</Text>
             <Text style={[styles.navLabel, currentPage === page.id && styles.navLabelActive]}>{page.label}</Text>
+            {currentPage === page.id && <View style={styles.navDot} />}
           </TouchableOpacity>
         ))}
       </View>
@@ -653,17 +824,48 @@ const styles = StyleSheet.create({
   dateLabel: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
   scroll: { flex: 1 },
 
+  // Progress Ring
+  progressRingWrap: { alignItems: 'center', padding: 16, paddingBottom: 8 },
+  ringContainer: { transform: [{ rotate: '-90deg' }] },
+  ringLabel: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  ringPct: { fontSize: 18, fontWeight: 'bold', color: COLORS.accent2 },
+  ringSub: { fontSize: 9, color: COLORS.muted, fontWeight: '500' },
+  ringCaption: { fontSize: 11, color: COLORS.muted, textAlign: 'center', marginTop: 8 },
+
+  // Domain Sections
+  domainSection: { marginHorizontal: 0, marginBottom: 6 },
+  domainHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14 },
+  domainName: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  domainIcon: { fontSize: 15 },
+  domainText: { fontSize: 13, fontWeight: '600', color: COLORS.text },
+  domainMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  domainCount: { backgroundColor: COLORS.surface, paddingVertical: 2, paddingHorizontal: 7, borderRadius: 99, borderWidth: 1, borderColor: COLORS.border },
+  domainCountText: { fontSize: 10, color: COLORS.muted },
+  priorityBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  priorityBadgeText: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  chevron: { color: COLORS.muted, fontSize: 10 },
+  expandedContent: { padding: 8, backgroundColor: 'rgba(124,92,252,0.04)', borderWidth: 1, borderColor: COLORS.border, borderTopWidth: 0, borderBottomLeftRadius: 14, borderBottomRightRadius: 14, marginTop: -1 },
+  
+  // Task Input
+  taskInputRow: { flexDirection: 'row', gap: 6, marginBottom: 8 },
+  taskInput: { flex: 1, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, padding: 7, color: COLORS.muted, fontSize: 11 },
+  addBtn: { backgroundColor: COLORS.accent, borderRadius: 8, width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
+  addBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  // Empty State
+  emptyState: { alignItems: 'center', padding: 16 },
+  emptyIcon: { fontSize: 24, marginBottom: 8 },
+  emptyText: { color: COLORS.muted, fontSize: 12, textAlign: 'center' },
+
   // Cards / inputs
   card: { backgroundColor: COLORS.card, padding: 12, borderRadius: 12, marginBottom: 8 },
   cardTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, marginBottom: 6 },
   input: { backgroundColor: COLORS.surface, borderRadius: 8, padding: 8, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 36 },
   inputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  addBtn: { backgroundColor: COLORS.accent, borderRadius: 8, marginLeft: 6, paddingHorizontal: 12, paddingVertical: 10 },
-  addBtnText: { color: COLORS.bg, fontWeight: 'bold', fontSize: 16 },
 
   // Progress
-  progressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 6 },
-  stepBtn: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, marginHorizontal: 8 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  stepBtn: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
   stepBtnText: { color: COLORS.text, fontSize: 18, fontWeight: 'bold' },
   progressText: { color: COLORS.accent, fontSize: 16, fontWeight: 'bold', minWidth: 50, textAlign: 'center' },
   progressBar: { height: 6, backgroundColor: COLORS.border, borderRadius: 3, marginTop: 6, overflow: 'hidden' },
@@ -706,6 +908,19 @@ const styles = StyleSheet.create({
   reminderTaskText: { flex: 1, color: COLORS.text, fontSize: 12, marginRight: 8 },
   reminderInput: { backgroundColor: COLORS.card, borderRadius: 6, padding: 6, color: COLORS.text, fontSize: 12, width: 80, borderWidth: 1, borderColor: COLORS.border },
 
+  // Goals
+  goalCard: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 12, marginBottom: 6 },
+  goalCardEmpty: { opacity: 0.5 },
+  goalDomainRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  goalDomainName: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  goalDomainText: { fontSize: 13, fontWeight: '600' },
+  goalInput: { backgroundColor: COLORS.surface, borderRadius: 8, padding: 8, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 36 },
+  goalTextPreview: { backgroundColor: COLORS.surface, borderRadius: 6, padding: 6, borderWidth: 1, borderColor: COLORS.border, marginBottom: 8 },
+  goalPlaceholder: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic' },
+  goalProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  progressBarTrack: { flex: 1, height: 5, backgroundColor: COLORS.dim, borderRadius: 99, overflow: 'hidden' },
+  progressBarFill: { height: 5, backgroundColor: COLORS.accent },
+
   // Somatic
   question: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 12, textAlign: 'center' },
   promptText: { fontSize: 12, color: COLORS.muted, marginTop: 12, marginBottom: 6 },
@@ -719,6 +934,16 @@ const styles = StyleSheet.create({
   techniqueBtnActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
   techniqueBtnText: { color: COLORS.text, fontSize: 12 },
   techniqueBtnTextActive: { color: COLORS.bg },
+  chipScroll: { flexDirection: 'row', marginBottom: 8 },
+  chip: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 99, paddingHorizontal: 12, paddingVertical: 7, marginRight: 8 },
+  chipActive: { backgroundColor: 'rgba(124,92,252,0.15)', borderColor: COLORS.accent },
+  chipText: { color: COLORS.muted, fontSize: 12 },
+  chipTextActive: { color: COLORS.accent2 },
+  sessionCard: { backgroundColor: COLORS.card, borderRadius: 8, padding: 10, marginBottom: 6 },
+  sessionHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  sessionTime: { color: COLORS.accent, fontSize: 11 },
+  sessionTechnique: { color: COLORS.text, fontSize: 11 },
+  sessionThoughts: { color: COLORS.text, fontSize: 12 },
 
   // History
   historyTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, marginTop: 16, marginBottom: 6 },
@@ -733,6 +958,10 @@ const styles = StyleSheet.create({
   analyticsTabActive: { backgroundColor: COLORS.accent },
   analyticsTabText: { color: COLORS.text, fontSize: 12 },
   analyticsTabTextActive: { color: COLORS.bg, fontWeight: 'bold' },
+  statRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  statBox: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, padding: 12, flex: 1, marginHorizontal: 4, alignItems: 'center' },
+  statValue: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  statLabel: { fontSize: 10, color: COLORS.muted, marginTop: 4 },
   chartCard: { backgroundColor: COLORS.card, padding: 12, borderRadius: 12, marginBottom: 8 },
   chartTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
   chartContainer: { backgroundColor: COLORS.surface, padding: 8, borderRadius: 8 },
@@ -741,9 +970,23 @@ const styles = StyleSheet.create({
   chartBarBackground: { flex: 1, height: 8, backgroundColor: COLORS.border, borderRadius: 4, marginHorizontal: 8 },
   chartBarFill: { height: 8, backgroundColor: COLORS.accent3, borderRadius: 4 },
   chartValue: { width: 40, color: COLORS.text, fontSize: 12, textAlign: 'right' },
-  statRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
-  statLabel: { color: COLORS.text, flex: 1, fontSize: 12 },
-  statValue: { color: COLORS.muted, fontSize: 12 },
+  heatmapSection: { backgroundColor: COLORS.card, padding: 12, borderRadius: 12, marginBottom: 8 },
+  heatmapTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
+  heatmapDays: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  heatmapDayLabel: { fontSize: 9, color: COLORS.muted },
+  heatmapGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 3 },
+  heatmapCell: { width: 18, height: 18, borderRadius: 3, backgroundColor: COLORS.dim },
+
+  // Shutdown
+  heroCard: { backgroundColor: 'rgba(124,92,252,0.12)', borderWidth: 1, borderColor: 'rgba(124,92,252,0.25)', borderRadius: 14, padding: 16, alignItems: 'center', marginBottom: 8 },
+  heroEmoji: { fontSize: 28, marginBottom: 8 },
+  heroTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 },
+  heroDate: { fontSize: 12, color: COLORS.muted },
+  reflectionCard: { backgroundColor: COLORS.card, borderRadius: 8, padding: 10, marginBottom: 6 },
+  reflectionHeader: { flexDirection: 'row', marginBottom: 4 },
+  reflectionDate: { color: COLORS.accent, fontSize: 11 },
+  reflectionScore: { color: COLORS.muted, fontSize: 11 },
+  reflectionText: { color: COLORS.text, fontSize: 12 },
 
   // Common
   emptyText: { color: COLORS.muted, fontStyle: 'italic', paddingVertical: 6 },
@@ -759,4 +1002,5 @@ const styles = StyleSheet.create({
   navIcon: { fontSize: 18 },
   navLabel: { color: COLORS.muted, fontSize: 10, marginTop: 2 },
   navLabelActive: { color: COLORS.accent, fontWeight: 'bold' },
+  navDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: COLORS.accent, marginTop: 2, shadowColor: COLORS.accent, shadowOpacity: 0.8, shadowRadius: 4, elevation: 4 },
 });
