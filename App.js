@@ -325,13 +325,12 @@ export default function App() {
           {new Date(currentDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         </Text>
       </View>
-      <ScrollView style={styles.scroll}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {LIFE_DOMAINS.map((domain) => {
           const goal = goals[domain.name];
-          const hasGoal = goal && goal.goalText && goal.goalText.trim().length > 0;
           
           return (
-            <View key={domain.name} style={[styles.goalCard, !hasGoal && styles.goalCardEmpty]}>
+            <View key={domain.name} style={styles.goalCard}>
               <View style={styles.goalDomainRow}>
                 <View style={styles.goalDomainName}>
                   <Text style={styles.domainIcon}>{domain.icon}</Text>
@@ -348,20 +347,15 @@ export default function App() {
                 </View>
               </View>
               
-              {hasGoal ? (
-                <TextInput
-                  style={styles.goalInput}
-                  value={goal.goalText}
-                  onChangeText={(t) => updateGoalText(domain.name, t)}
-                  placeholder={`Long-term goal for ${domain.name}...`}
-                  placeholderTextColor={COLORS.muted}
-                  multiline
-                />
-              ) : (
-                <View style={styles.goalTextPreview}>
-                  <Text style={styles.goalPlaceholder}>No goal set yet — tap to add</Text>
-                </View>
-              )}
+              <TextInput
+                style={styles.goalInput}
+                value={goal?.goalText || ''}
+                onChangeText={(t) => updateGoalText(domain.name, t)}
+                placeholder={`Long-term goal for ${domain.name}...`}
+                placeholderTextColor={COLORS.muted}
+                multiline
+                textAlignVertical="top"
+              />
               
               <View style={styles.goalProgressRow}>
                 <View style={styles.progressBarTrack}>
@@ -823,6 +817,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
   dateLabel: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
   scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 20 },
 
   // Progress Ring
   progressRingWrap: { alignItems: 'center', padding: 16, paddingBottom: 8 },
@@ -910,13 +905,10 @@ const styles = StyleSheet.create({
 
   // Goals
   goalCard: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 12, marginBottom: 6 },
-  goalCardEmpty: { opacity: 0.5 },
   goalDomainRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   goalDomainName: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   goalDomainText: { fontSize: 13, fontWeight: '600' },
-  goalInput: { backgroundColor: COLORS.surface, borderRadius: 8, padding: 8, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 36 },
-  goalTextPreview: { backgroundColor: COLORS.surface, borderRadius: 6, padding: 6, borderWidth: 1, borderColor: COLORS.border, marginBottom: 8 },
-  goalPlaceholder: { fontSize: 11, color: COLORS.muted, fontStyle: 'italic' },
+  goalInput: { backgroundColor: COLORS.surface, borderRadius: 8, padding: 12, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 80, fontSize: 14 },
   goalProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   progressBarTrack: { flex: 1, height: 5, backgroundColor: COLORS.dim, borderRadius: 99, overflow: 'hidden' },
   progressBarFill: { height: 5, backgroundColor: COLORS.accent },
