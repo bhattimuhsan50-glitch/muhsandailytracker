@@ -10,6 +10,8 @@ import {
   StatusBar,
   SafeAreaView,
   LayoutAnimation,
+  Modal,
+  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Svg, Circle } from 'react-native-svg';
@@ -17,6 +19,8 @@ import {
   setupNotifications,
   scheduleBreathReminder,
   cancelBreathReminder,
+  scheduleTaskReminder,
+  cancelTaskReminder,
 } from './notifications';
 
 const COLORS = {
@@ -55,6 +59,16 @@ const LIFE_DOMAINS = [
 
 const PRIORITY_ORDER = ['A', 'B', 'C', 'D', 'E'];
 
+// Activity-heatmap fill colors, indexed by heat level 0-4.
+// 0 = empty, 1-25% = l1, 26-50% = l2, 51-75% = l3, 76-100% = l4.
+const HEAT_COLORS = [
+  COLORS.dim,
+  'rgba(124,92,252,0.2)',
+  'rgba(124,92,252,0.4)',
+  'rgba(124,92,252,0.65)',
+  COLORS.accent,
+];
+
 const defaultGoals = () => {
   const g = {};
   LIFE_DOMAINS.forEach((d) => { g[d.name] = { goalText: '', progress: 0 }; });
@@ -62,6 +76,102 @@ const defaultGoals = () => {
 };
 
 const STORAGE_KEY = (date) => 'muhsanTracker_' + date;
+
+// Clock-style time picker shown in a modal bottom sheet. Mirrors the
+// "tap hour → AM/PM → minute" flow. onConfirm receives (hour24, minute).
+const TimePickerModal = ({ visible, initialHour, initialMinute, onClose, onConfirm }) => {
+  const [hour12, setHour12] = useState(initialHour % 12 === 0 ? 12 : initialHour % 12);
+  const [minute, setMinute] = useState(initialMinute);
+  const [isPM, setIsPM] = useState(initialHour >= 12);
+
+  // Re-sync to incoming values each time the modal opens.
+  useEffect(() => {
+    if (visible) {
+      setHour12(initialHour % 12 === 0 ? 12 : initialHour % 12);
+      setMinute(initialMinute);
+      setIsPM(initialHour >= 12);
+    }
+  }, [visible, initialHour, initialMinute]);
+
+  const fmt = (h, m, pm) => {
+    const hh = h % 12 === 0 ? 12 : h % 12;
+    const mm = String(m).padStart(2, '0');
+    return `${hh}:${mm} ${pm ? 'PM' : 'AM'}`;
+  };
+
+  const confirm = () => {
+    const h24 = (hour12 % 12) + (isPM ? 12 : 0);
+    onConfirm(h24, minute);
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.pickerOverlay}>
+        <View style={styles.pickerSheet}>
+          <Text style={styles.pickerTitle}>Set reminder time</Text>
+
+          {/* Live preview of the selected time */}
+          <View style={styles.pickerPreview}>
+            <Text style={styles.pickerPreviewText}>{fmt(hour12, minute, isPM)}</Text>
+          </View>
+
+          <Text style={styles.pickerSectionLabel}>HOUR</Text>
+          <View style={styles.pickerGrid}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((h) => (
+              <TouchableOpacity
+                key={h}
+                style={[styles.pickerCell, hour12 === h && styles.pickerCellActive]}
+                onPress={() => setHour12(h)}
+              >
+                <Text style={[styles.pickerCellText, hour12 === h && styles.pickerCellTextActive]}>{h}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.pickerSectionLabel}>MINUTE</Text>
+          <View style={styles.pickerGrid}>
+            {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => (
+              <TouchableOpacity
+                key={m}
+                style={[styles.pickerCell, minute === m && styles.pickerCellActive]}
+                onPress={() => setMinute(m)}
+              >
+                <Text style={[styles.pickerCellText, minute === m && styles.pickerCellTextActive]}>
+                  {String(m).padStart(2, '0')}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.ampmRow}>
+            <TouchableOpacity
+              style={[styles.ampmBtn, !isPM && styles.ampmBtnActive]}
+              onPress={() => setIsPM(false)}
+            >
+              <Text style={[styles.ampmBtnText, !isPM && styles.ampmBtnTextActive]}>AM</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.ampmBtn, isPM && styles.ampmBtnActive]}
+              onPress={() => setIsPM(true)}
+            >
+              <Text style={[styles.ampmBtnText, isPM && styles.ampmBtnTextActive]}>PM</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.pickerActions}>
+            <TouchableOpacity style={styles.pickerCancelBtn} onPress={onClose}>
+              <Text style={styles.pickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.pickerConfirmBtn} onPress={confirm}>
+              <Text style={styles.pickerConfirmText}>Confirm</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
@@ -101,6 +211,12 @@ export default function App() {
   const [analyticsView, setAnalyticsView] = useState('daily');
   const [reminderInterval, setReminderInterval] = useState(0);
 
+  // Activity heatmap: 28 heat levels (0-4) for the last 28 days.
+  const [heatmapLevels, setHeatmapLevels] = useState(Array(28).fill(0));
+
+  // Time-picker modal: { taskId, taskText, hour, minute } or null when closed.
+  const [timePicker, setTimePicker] = useState(null);
+
   // Load saved day whenever the date changes.
   useEffect(() => { loadData(); }, [currentDate]);
 
@@ -113,6 +229,12 @@ export default function App() {
   useEffect(() => {
     setupNotifications(() => setCurrentPage('somatic'));
   }, []);
+
+  // Refresh the 28-day activity heatmap whenever the current date changes
+  // or after a save (so completing today's tasks lights up its cell).
+  useEffect(() => {
+    loadHeatmapData();
+  }, [currentDate, tasks, todayTasks]);
 
   const loadData = async () => {
     try {
@@ -148,10 +270,52 @@ export default function App() {
     try {
       const interval = await AsyncStorage.getItem('reminderInterval');
       if (interval) {
-        setReminderInterval(parseInt(interval));
+        setReminderInterval(parseFloat(interval));
       }
     } catch (error) {
       console.error('Error loading reminder interval:', error);
+    }
+  };
+
+  // Build the 28-cell heatmap from AsyncStorage day records. Each cell maps
+  // a day's task completion rate to a heat level (0-4). Today's in-memory
+  // state is used for the current day so the cell updates live.
+  const loadHeatmapData = async () => {
+    try {
+      const levels = [];
+      const today = new Date();
+      for (let i = 27; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().split('T')[0];
+        let rate = 0;
+        if (key === currentDate) {
+          // Use live in-memory state for today.
+          if (todayTasks.length > 0) {
+            const done = todayTasks.filter((t) => tasks[t.id]).length;
+            rate = Math.round((done / todayTasks.length) * 100);
+          }
+        } else {
+          const raw = await AsyncStorage.getItem('muhsanTracker_' + key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            const list = parsed.todayTasks || [];
+            if (list.length > 0) {
+              const done = list.filter((t) => parsed.tasks && parsed.tasks[t.id]).length;
+              rate = Math.round((done / list.length) * 100);
+            }
+          }
+        }
+        let level = 0;
+        if (rate > 0 && rate <= 25) level = 1;
+        else if (rate <= 50) level = 2;
+        else if (rate <= 75) level = 3;
+        else if (rate > 75) level = 4;
+        levels.push(level);
+      }
+      setHeatmapLevels(levels);
+    } catch (error) {
+      console.error('Error loading heatmap data:', error);
     }
   };
 
@@ -197,9 +361,13 @@ export default function App() {
     ]);
     setDomainInputs({ ...domainInputs, [domain]: '' });
   };
-  const deleteTask = (taskId) => {
+  const deleteTask = async (taskId) => {
+    // Cancel any scheduled notification before dropping the reminder entry.
+    const existing = taskReminders[taskId];
+    if (existing && existing.notifId) {
+      await cancelTaskReminder(existing.notifId);
+    }
     setTodayTasks(todayTasks.filter((t) => t.id !== taskId));
-    // Also clean up reminder
     const newReminders = { ...taskReminders };
     delete newReminders[taskId];
     setTaskReminders(newReminders);
@@ -207,8 +375,32 @@ export default function App() {
   const setTaskCategory = (taskId, category) => {
     setTodayTasks(todayTasks.map((t) => (t.id === taskId ? { ...t, category } : t)));
   };
-  const setTaskReminder = (taskId, time) => {
-    setTaskReminders({ ...taskReminders, [taskId]: time });
+  // Schedule (or replace) a daily task reminder at the given 24h time.
+  const setTaskReminder = async (taskId, hour, minute) => {
+    const task = todayTasks.find((t) => t.id === taskId);
+    // Cancel any previously scheduled notification for this task first.
+    const prev = taskReminders[taskId];
+    if (prev && prev.notifId) {
+      await cancelTaskReminder(prev.notifId);
+    }
+    const notifId = await scheduleTaskReminder(task ? task.text : '', hour, minute);
+    const ampmHour = hour % 12 === 0 ? 12 : hour % 12;
+    const ampm = hour < 12 ? 'AM' : 'PM';
+    const mm = String(minute).padStart(2, '0');
+    setTaskReminders({
+      ...taskReminders,
+      [taskId]: { time: `${ampmHour}:${mm} ${ampm}`, hour, minute, notifId },
+    });
+  };
+  // Clear a task's reminder (cancels the notification).
+  const clearTaskReminder = async (taskId) => {
+    const prev = taskReminders[taskId];
+    if (prev && prev.notifId) {
+      await cancelTaskReminder(prev.notifId);
+    }
+    const newReminders = { ...taskReminders };
+    delete newReminders[taskId];
+    setTaskReminders(newReminders);
   };
   const toggleTask = (taskId) => {
     setTasks((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
@@ -297,6 +489,7 @@ export default function App() {
       id: Date.now(),
       date: currentDate,
       reflection: shutdownReflection,
+      completionPct: calculateScore(),
       shutdownTime: new Date().toISOString(),
     };
     setDailyShutdowns([...dailyShutdowns, shutdown]);
@@ -328,40 +521,55 @@ export default function App() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {LIFE_DOMAINS.map((domain) => {
           const goal = goals[domain.name];
-          
+          const isExpanded = expandedDomains[domain.name];
+          const hasContent = (goal?.goalText && goal.goalText.trim()) || (goal?.progress || 0) > 0;
+
           return (
-            <View key={domain.name} style={styles.goalCard}>
-              <View style={styles.goalDomainRow}>
+            <View key={domain.name} style={[styles.goalCard, !hasContent && !isExpanded && styles.goalCardDim]}>
+              <TouchableOpacity
+                style={styles.goalDomainRow}
+                onPress={() => toggleDomain(domain.name)}
+                activeOpacity={0.7}
+              >
                 <View style={styles.goalDomainName}>
                   <Text style={styles.domainIcon}>{domain.icon}</Text>
                   <Text style={styles.goalDomainText}>{domain.name}</Text>
+                  {!isExpanded && !hasContent && (
+                    <Text style={styles.goalPlaceholderInline}>No goal set</Text>
+                  )}
                 </View>
-                <View style={styles.progressRow}>
-                  <TouchableOpacity style={styles.stepBtn} onPress={() => updateGoalProgress(domain.name, -10)}>
-                    <Text style={styles.stepBtnText}>−</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.progressText}>{goal?.progress || 0}%</Text>
-                  <TouchableOpacity style={styles.stepBtn} onPress={() => updateGoalProgress(domain.name, 10)}>
-                    <Text style={styles.stepBtnText}>+</Text>
-                  </TouchableOpacity>
+                <View style={styles.goalHeaderRight}>
+                  <View style={styles.progressRow}>
+                    <TouchableOpacity style={styles.stepBtn} onPress={(e) => { e.stopPropagation && e.stopPropagation(); updateGoalProgress(domain.name, -10); }}>
+                      <Text style={styles.stepBtnText}>−</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.progressText}>{goal?.progress || 0}%</Text>
+                    <TouchableOpacity style={styles.stepBtn} onPress={(e) => { e.stopPropagation && e.stopPropagation(); updateGoalProgress(domain.name, 10); }}>
+                      <Text style={styles.stepBtnText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.chevron}>{isExpanded ? '▼' : '▶'}</Text>
                 </View>
-              </View>
-              
-              <TextInput
-                style={styles.goalInput}
-                value={goal?.goalText || ''}
-                onChangeText={(t) => updateGoalText(domain.name, t)}
-                placeholder={`Long-term goal for ${domain.name}...`}
-                placeholderTextColor={COLORS.muted}
-                multiline
-                textAlignVertical="top"
-              />
-              
-              <View style={styles.goalProgressRow}>
-                <View style={styles.progressBarTrack}>
-                  <View style={[styles.progressBarFill, { width: `${goal?.progress || 0}%` }]} />
+              </TouchableOpacity>
+
+              {isExpanded && (
+                <View style={styles.goalExpanded}>
+                  <TextInput
+                    style={styles.goalInput}
+                    value={goal?.goalText || ''}
+                    onChangeText={(t) => updateGoalText(domain.name, t)}
+                    placeholder={`Long-term goal for ${domain.name}...`}
+                    placeholderTextColor={COLORS.muted}
+                    multiline
+                    textAlignVertical="top"
+                  />
+                  <View style={styles.goalProgressRow}>
+                    <View style={styles.progressBarTrack}>
+                      <View style={[styles.progressBarFill, { width: `${goal?.progress || 0}%` }]} />
+                    </View>
+                  </View>
                 </View>
-              </View>
+              )}
             </View>
           );
         })}
@@ -481,18 +689,34 @@ export default function App() {
                     {list.length > 0 && (
                       <View style={styles.reminderSection}>
                         <Text style={styles.reminderTitle}>Task Reminders</Text>
-                        {list.map((task) => (
-                          <View key={task.id} style={styles.reminderRow}>
-                            <Text style={styles.reminderTaskText} numberOfLines={1}>{task.text}</Text>
-                            <TextInput
-                              style={styles.reminderInput}
-                              value={taskReminders[task.id] || ''}
-                              onChangeText={(t) => setTaskReminder(task.id, t)}
-                              placeholder="HH:MM"
-                              placeholderTextColor={COLORS.muted}
-                            />
-                          </View>
-                        ))}
+                        {list.map((task) => {
+                          const rem = taskReminders[task.id];
+                          return (
+                            <View key={task.id} style={styles.reminderRow}>
+                              <Text style={styles.reminderTaskText} numberOfLines={1}>{task.text}</Text>
+                              <TouchableOpacity
+                                style={styles.reminderChip}
+                                onPress={() => setTimePicker({
+                                  taskId: task.id,
+                                  hour: rem ? rem.hour : 9,
+                                  minute: rem ? rem.minute : 0,
+                                })}
+                              >
+                                <Text style={styles.reminderChipText}>
+                                  {rem ? `⏰ ${rem.time}` : '+ Set time'}
+                                </Text>
+                              </TouchableOpacity>
+                              {rem && (
+                                <TouchableOpacity
+                                  style={styles.reminderClearBtn}
+                                  onPress={() => clearTaskReminder(task.id)}
+                                >
+                                  <Text style={styles.reminderClearText}>✕</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          );
+                        })}
                       </View>
                     )}
                   </View>
@@ -575,8 +799,15 @@ export default function App() {
               ))}
             </View>
             <View style={styles.heatmapGrid}>
-              {Array(28).fill(0).map((_, i) => (
-                <View key={i} style={[styles.heatmapCell, { backgroundColor: COLORS.dim }]} />
+              {heatmapLevels.map((level, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.heatmapCell,
+                    { backgroundColor: HEAT_COLORS[level] || HEAT_COLORS[0] },
+                    i === heatmapLevels.length - 1 && styles.heatmapCellToday,
+                  ]}
+                />
               ))}
             </View>
           </View>
@@ -648,17 +879,17 @@ export default function App() {
         />
 
         <Text style={styles.promptText}>Technique for moving on work</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+        <View style={styles.chipRow}>
           {['⚡ Present-Past Game', '🔄 Opportunity Game'].map((tech) => (
             <TouchableOpacity
               key={tech}
               style={[styles.chip, somaticData.technique === tech && styles.chipActive]}
               onPress={() => setSomaticData({ ...somaticData, technique: tech })}
             >
-              <Text style={[styles.chipText, somaticData.technique === tech && styles.chipTextActive]}>{tech}</Text>
+              <Text style={[styles.chipText, somaticData.technique === tech && styles.chipTextActive]} numberOfLines={1}>{tech}</Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
 
         <TouchableOpacity style={styles.saveButton} onPress={logSomaticState}>
           <Text style={styles.saveButtonText}>Save / Submit</Text>
@@ -684,7 +915,7 @@ export default function App() {
         <View style={styles.divider} />
         <Text style={styles.promptText}>Breath Reminder</Text>
         <View style={styles.techniqueRow}>
-          {[{ label: 'Off', h: 0 }, { label: '1h', h: 1 }, { label: '2h', h: 2 }, { label: '4h', h: 4 }].map((opt) => (
+          {[{ label: 'Off', h: 0 }, { label: '2m', h: 2/60 }, { label: '1h', h: 1 }, { label: '2h', h: 2 }, { label: '4h', h: 4 }].map((opt) => (
             <TouchableOpacity
               key={opt.label}
               style={[styles.techniqueBtn, reminderInterval === opt.h && styles.techniqueBtnActive]}
@@ -694,6 +925,7 @@ export default function App() {
             </TouchableOpacity>
           ))}
         </View>
+        <Text style={styles.helperText}>Use 2m to test that a notification actually arrives.</Text>
       </ScrollView>
     </View>
   );
@@ -751,7 +983,7 @@ export default function App() {
                 <View key={s.id} style={styles.reflectionCard}>
                   <View style={styles.reflectionHeader}>
                     <Text style={styles.reflectionDate}>{s.date}</Text>
-                    <Text style={styles.reflectionScore}>· 64% complete</Text>
+                    <Text style={styles.reflectionScore}>· {s.completionPct != null ? s.completionPct : '—'}% complete</Text>
                   </View>
                   <Text style={styles.reflectionText}>{s.reflection || '(no reflection written)'}</Text>
                 </View>
@@ -806,6 +1038,17 @@ export default function App() {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.bg} />
       {renderPage()}
       {renderNavigation()}
+      <TimePickerModal
+        visible={timePicker !== null}
+        initialHour={timePicker ? timePicker.hour : 9}
+        initialMinute={timePicker ? timePicker.minute : 0}
+        onClose={() => setTimePicker(null)}
+        onConfirm={(hour, minute) => {
+          if (timePicker) {
+            setTaskReminder(timePicker.taskId, hour, minute);
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -813,8 +1056,8 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   page: { flex: 1, padding: 12 },
-  sectionHeader: { marginBottom: 8 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  sectionHeader: { marginBottom: 8, paddingTop: 4 },
+  sectionTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, letterSpacing: 0.3 },
   dateLabel: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 20 },
@@ -864,7 +1107,7 @@ const styles = StyleSheet.create({
   stepBtnText: { color: COLORS.text, fontSize: 18, fontWeight: 'bold' },
   progressText: { color: COLORS.accent, fontSize: 16, fontWeight: 'bold', minWidth: 50, textAlign: 'center' },
   progressBar: { height: 6, backgroundColor: COLORS.border, borderRadius: 3, marginTop: 6, overflow: 'hidden' },
-  progressBarFill: { height: 6, backgroundColor: COLORS.accent3 },
+  progressBarFill: { height: 6, backgroundColor: COLORS.accent },
 
   // Date nav
   dateNav: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
@@ -899,23 +1142,31 @@ const styles = StyleSheet.create({
   // Task reminders
   reminderSection: { marginTop: 8, padding: 8, backgroundColor: COLORS.surface, borderRadius: 8 },
   reminderTitle: { fontSize: 12, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 },
-  reminderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  reminderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   reminderTaskText: { flex: 1, color: COLORS.text, fontSize: 12, marginRight: 8 },
-  reminderInput: { backgroundColor: COLORS.card, borderRadius: 6, padding: 6, color: COLORS.text, fontSize: 12, width: 80, borderWidth: 1, borderColor: COLORS.border },
+  reminderChip: { backgroundColor: COLORS.card, borderRadius: 99, paddingVertical: 5, paddingHorizontal: 10, borderWidth: 1, borderColor: COLORS.border },
+  reminderChipText: { color: COLORS.accent2, fontSize: 11, fontWeight: '600' },
+  reminderClearBtn: { marginLeft: 6, padding: 4 },
+  reminderClearText: { color: COLORS.muted, fontSize: 13 },
 
   // Goals
   goalCard: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 12, marginBottom: 6 },
-  goalDomainRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  goalDomainName: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  goalDomainText: { fontSize: 13, fontWeight: '600' },
-  goalInput: { backgroundColor: COLORS.surface, borderRadius: 8, padding: 12, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 80, fontSize: 14 },
-  goalProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  goalCardDim: { opacity: 0.5 },
+  goalDomainRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  goalDomainName: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
+  goalDomainText: { fontSize: 13, fontWeight: '600', color: COLORS.text },
+  goalPlaceholderInline: { fontSize: 10, color: COLORS.muted, fontStyle: 'italic', marginLeft: 4 },
+  goalHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  goalExpanded: { marginTop: 8 },
+  goalInput: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 40, fontSize: 13 },
+  goalProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   progressBarTrack: { flex: 1, height: 5, backgroundColor: COLORS.dim, borderRadius: 99, overflow: 'hidden' },
   progressBarFill: { height: 5, backgroundColor: COLORS.accent },
 
   // Somatic
   question: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 12, textAlign: 'center' },
   promptText: { fontSize: 12, color: COLORS.muted, marginTop: 12, marginBottom: 6 },
+  helperText: { fontSize: 10, color: COLORS.dim, marginTop: 4, fontStyle: 'italic' },
   percentGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   percentBtn: { width: '18%', backgroundColor: COLORS.surface, borderRadius: 6, paddingVertical: 10, alignItems: 'center', marginVertical: 3, borderWidth: 1, borderColor: COLORS.border },
   percentBtnActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
@@ -927,9 +1178,10 @@ const styles = StyleSheet.create({
   techniqueBtnText: { color: COLORS.text, fontSize: 12 },
   techniqueBtnTextActive: { color: COLORS.bg },
   chipScroll: { flexDirection: 'row', marginBottom: 8 },
-  chip: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 99, paddingHorizontal: 12, paddingVertical: 7, marginRight: 8 },
+  chipRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  chip: { flex: 1, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 99, paddingHorizontal: 10, paddingVertical: 8, alignItems: 'center' },
   chipActive: { backgroundColor: 'rgba(124,92,252,0.15)', borderColor: COLORS.accent },
-  chipText: { color: COLORS.muted, fontSize: 12 },
+  chipText: { color: COLORS.muted, fontSize: 11, textAlign: 'center' },
   chipTextActive: { color: COLORS.accent2 },
   sessionCard: { backgroundColor: COLORS.card, borderRadius: 8, padding: 10, marginBottom: 6 },
   sessionHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
@@ -960,7 +1212,7 @@ const styles = StyleSheet.create({
   chartRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   chartLabel: { width: 80, color: COLORS.text, fontSize: 12 },
   chartBarBackground: { flex: 1, height: 8, backgroundColor: COLORS.border, borderRadius: 4, marginHorizontal: 8 },
-  chartBarFill: { height: 8, backgroundColor: COLORS.accent3, borderRadius: 4 },
+  chartBarFill: { height: 8, backgroundColor: COLORS.accent, borderRadius: 4 },
   chartValue: { width: 40, color: COLORS.text, fontSize: 12, textAlign: 'right' },
   heatmapSection: { backgroundColor: COLORS.card, padding: 12, borderRadius: 12, marginBottom: 8 },
   heatmapTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
@@ -968,6 +1220,7 @@ const styles = StyleSheet.create({
   heatmapDayLabel: { fontSize: 9, color: COLORS.muted },
   heatmapGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 3 },
   heatmapCell: { width: 18, height: 18, borderRadius: 3, backgroundColor: COLORS.dim },
+  heatmapCellToday: { borderWidth: 1, borderColor: COLORS.accent2 },
 
   // Shutdown
   heroCard: { backgroundColor: 'rgba(124,92,252,0.12)', borderWidth: 1, borderColor: 'rgba(124,92,252,0.25)', borderRadius: 14, padding: 16, alignItems: 'center', marginBottom: 8 },
@@ -995,4 +1248,27 @@ const styles = StyleSheet.create({
   navLabel: { color: COLORS.muted, fontSize: 10, marginTop: 2 },
   navLabelActive: { color: COLORS.accent, fontWeight: 'bold' },
   navDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: COLORS.accent, marginTop: 2, shadowColor: COLORS.accent, shadowOpacity: 0.8, shadowRadius: 4, elevation: 4 },
+
+  // Time Picker Modal
+  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  pickerSheet: { backgroundColor: COLORS.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '85%' },
+  pickerTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, textAlign: 'center', marginBottom: 12 },
+  pickerPreview: { backgroundColor: COLORS.card, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: COLORS.border },
+  pickerPreviewText: { fontSize: 28, fontWeight: 'bold', color: COLORS.accent2 },
+  pickerSectionLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '600', letterSpacing: 1, marginBottom: 8, marginTop: 4 },
+  pickerGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 14 },
+  pickerCell: { width: '23%', backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginBottom: 6 },
+  pickerCellActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  pickerCellText: { color: COLORS.text, fontSize: 14, fontWeight: '600' },
+  pickerCellTextActive: { color: COLORS.bg },
+  ampmRow: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 18 },
+  ampmBtn: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 99, paddingVertical: 10, paddingHorizontal: 28 },
+  ampmBtnActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  ampmBtnText: { color: COLORS.muted, fontSize: 14, fontWeight: 'bold' },
+  ampmBtnTextActive: { color: COLORS.bg },
+  pickerActions: { flexDirection: 'row', gap: 10 },
+  pickerCancelBtn: { flex: 1, backgroundColor: COLORS.card, borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
+  pickerCancelText: { color: COLORS.muted, fontSize: 14, fontWeight: '600' },
+  pickerConfirmBtn: { flex: 1, backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  pickerConfirmText: { color: COLORS.bg, fontSize: 14, fontWeight: 'bold' },
 });
