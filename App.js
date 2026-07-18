@@ -649,7 +649,7 @@ export default function App() {
                       <View style={[styles.progressBarFill, { width: `${goal?.progress || 0}%` }]} />
                     </View>
                   </View>
-                  <Text style={styles.chevron}>{isExpanded ? '▼' : '▶'}</Text>
+                  {Platform.OS !== 'web' && <Text style={styles.chevron}>{isExpanded ? '▼' : '▶'}</Text>}
                 </View>
               </TouchableOpacity>
 
@@ -1287,8 +1287,8 @@ const styles = StyleSheet.create({
   goalExpanded: { marginTop: 6 },
   goalInput: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 30, fontSize: 12 },
   goalProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 6 },
-  progressBarTrack: { width: 60, height: 4, backgroundColor: COLORS.dim, borderRadius: 99, overflow: 'hidden' },
-  progressBarFill: { height: 4, backgroundColor: COLORS.accent },
+  progressBarTrack: { width: 100, height: 10, backgroundColor: COLORS.dim, borderRadius: 99, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.border },
+  progressBarFill: { height: 10, backgroundColor: COLORS.accent },
 
   // Somatic
   question: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 12, textAlign: 'center' },
