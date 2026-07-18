@@ -129,3 +129,16 @@ export async function cancelTaskReminder(id) {
     await Notifications.cancelScheduledNotificationAsync(id);
   } catch (e) { /* ignore */ }
 }
+
+/**
+ * Get the count of scheduled notifications currently registered with the OS.
+ * Returns the number of scheduled notifications, or -1 if the API is not available.
+ */
+export async function getScheduledNotificationsCount() {
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    return scheduled ? scheduled.length : 0;
+  } catch (e) {
+    return -1;
+  }
+}

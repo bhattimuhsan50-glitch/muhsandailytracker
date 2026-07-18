@@ -12,6 +12,8 @@ import {
   LayoutAnimation,
   Modal,
   Platform,
+  AppState,
+  Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Svg, Circle } from 'react-native-svg';
@@ -21,6 +23,7 @@ import {
   cancelBreathReminder,
   scheduleTaskReminder,
   cancelTaskReminder,
+  getScheduledNotificationsCount,
 } from './notifications';
 
 const COLORS = {
@@ -211,6 +214,10 @@ export default function App() {
   const [analyticsView, setAnalyticsView] = useState('daily');
   const [reminderInterval, setReminderInterval] = useState(0);
 
+  // Notification diagnostics: how many alarms the OS currently has registered
+  // for this app. Drops to 0 when a force-stop wipes them (aggressive ROMs).
+  const [scheduledCount, setScheduledCount] = useState(Platform.OS === 'web' ? -1 : null);
+
   // Activity heatmap: 28 heat levels (0-4) for the last 28 days.
   const [heatmapLevels, setHeatmapLevels] = useState(Array(28).fill(0));
 
@@ -228,6 +235,25 @@ export default function App() {
   // Set up push notifications and route taps to the Somatic tab.
   useEffect(() => {
     setupNotifications(() => setCurrentPage('somatic'));
+  }, []);
+
+  // Seed the diagnostics counter after notifications are set up
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      getScheduledNotificationsCount().then(n => setScheduledCount(n)).catch(() => setScheduledCount(-1));
+    }
+  }, []);
+
+  // Re-check scheduled notifications when the app returns to the foreground
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        getScheduledNotificationsCount().then(n => setScheduledCount(n)).catch(() => setScheduledCount(-1));
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   // Refresh the 28-day activity heatmap whenever the current date changes
@@ -480,7 +506,6 @@ export default function App() {
     setSomaticLogs(updated);
     // Reset the active input area for the next entry.
     setSomaticData({ focusLevel: null, thoughts: '', thoughtLabel: '', technique: null });
-    saveData(true);
   };
 
   // ─── Shutdown ─────────────────────────────────────────────────────────────
@@ -507,6 +532,28 @@ export default function App() {
     } else {
       await cancelBreathReminder();
     }
+    if (Platform.OS !== 'web') {
+      getScheduledNotificationsCount().then(n => setScheduledCount(n)).catch(() => setScheduledCount(-1));
+    }
+  };
+
+  const openBatterySettings = () => {
+    if (Platform.OS === 'web') {
+      Alert.alert('Notifications', 'Battery settings are only available on native platforms.');
+      return;
+    }
+    if (Platform.OS !== 'android') {
+      Alert.alert('Notifications', 'Background delivery settings are Android-only.');
+      return;
+    }
+    Alert.alert(
+      'Keep reminders alive in the background',
+      'Some phones (Xiaomi, Samsung, Oppo, Vivo, Huawei) kill scheduled reminders when you swipe the app away from recents. To fix this, open the app settings and enable:\n\n• Autostart / Auto-launch\n• Battery: Unrestricted / No restrictions\n• Allow background activity\n\nTap OK to open the app settings page.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Open settings', onPress: () => Linking.openSettings() },
+      ],
+    );
   };
 
   // ─── Render: Long-Term Goals ──────────────────────────────────────────────
@@ -612,6 +659,8 @@ export default function App() {
             const list = sortedTasks(domain.name);
             const isExpanded = expandedDomains[domain.name];
             const count = list.length;
+            const doneCount = list.filter((t) => tasks[t.id]).length;
+            const allDone = count > 0 && doneCount === count;
             
             return (
               <View key={domain.name} style={styles.domainSection}>
@@ -624,8 +673,8 @@ export default function App() {
                     <Text style={styles.domainText}>{domain.name}</Text>
                   </View>
                   <View style={styles.domainMeta}>
-                    <View style={styles.domainCount}>
-                      <Text style={styles.domainCountText}>{count}</Text>
+                    <View style={[styles.domainCount, allDone && styles.domainCountDone]}>
+                      <Text style={[styles.domainCountText, allDone && styles.domainCountTextDone]}>{doneCount}/{count}</Text>
                     </View>
                     {count > 0 && (
                       <View style={[styles.priorityBadge, { backgroundColor: CATEGORY_COLORS[list[0].category] + '20', borderColor: CATEGORY_COLORS[list[0].category] + '40' }]}>
@@ -926,6 +975,26 @@ export default function App() {
           ))}
         </View>
         <Text style={styles.helperText}>Use 2m to test that a notification actually arrives.</Text>
+
+        <View style={styles.divider} />
+        {Platform.OS !== 'web' && (
+          <View style={styles.notifDiagCard}>
+            <Text style={styles.notifDiagTitle}>Notification Diagnostics</Text>
+            <View style={styles.notifDiagLine}>
+              <Text style={styles.notifDiagHint}>Scheduled alarms: </Text>
+              <Text style={styles.notifDiagBold}>{scheduledCount === null ? 'Loading...' : scheduledCount === -1 ? 'Not available' : scheduledCount}</Text>
+            </View>
+            <Text style={styles.notifDiagHint}>
+              {scheduledCount === 0 ? 'No alarms scheduled. Force-stopping the app can wipe them.' : scheduledCount > 0 ? 'Alarms are registered with the OS.' : 'Check your notification permissions.'}
+            </Text>
+            <TouchableOpacity style={styles.notifDiagBtn} onPress={openBatterySettings}>
+              <Text style={styles.notifDiagBtnText}>Keep reminders alive (open settings)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.notifDiagRefresh} onPress={() => getScheduledNotificationsCount().then(n => setScheduledCount(n)).catch(() => setScheduledCount(-1))}>
+              <Text style={styles.notifDiagRefreshText}>Re-check now</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
