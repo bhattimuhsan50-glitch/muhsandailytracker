@@ -14,6 +14,8 @@ import {
   Platform,
   AppState,
   Linking,
+  PanResponder,
+  Animated,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Svg, Circle } from 'react-native-svg';
@@ -218,6 +220,10 @@ export default function App() {
   // for this app. Drops to 0 when a force-stop wipes them (aggressive ROMs).
   const [scheduledCount, setScheduledCount] = useState(Platform.OS === 'web' ? -1 : null);
 
+  // Domain reordering state
+  const [draggedDomain, setDraggedDomain] = useState(null);
+  const [domainOrder, setDomainOrder] = useState(LIFE_DOMAINS.map(d => d.name));
+
   // Activity heatmap: 28 heat levels (0-4) for the last 28 days.
   const [heatmapLevels, setHeatmapLevels] = useState(Array(28).fill(0));
 
@@ -286,6 +292,16 @@ export default function App() {
         setDailyShutdowns([]);
         setTaskReminders({});
         setExpandedDomains({});
+      }
+      
+      // Load domain order
+      try {
+        const savedOrder = await AsyncStorage.getItem('domainOrder');
+        if (savedOrder) {
+          setDomainOrder(JSON.parse(savedOrder));
+        }
+      } catch (e) {
+        console.error('Failed to load domain order:', e);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -375,6 +391,36 @@ export default function App() {
   const toggleDomain = (domain) => {
     LayoutAnimation.easeInEaseOut();
     setExpandedDomains({ ...expandedDomains, [domain]: !expandedDomains[domain] });
+  };
+
+  // Domain reordering functions
+  const handleDragStart = (domainName) => {
+    setDraggedDomain(domainName);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedDomain(null);
+  };
+
+  const handleDrop = (targetDomain) => {
+    if (!draggedDomain || draggedDomain === targetDomain) return;
+    
+    const newOrder = [...domainOrder];
+    const draggedIndex = newOrder.indexOf(draggedDomain);
+    const targetIndex = newOrder.indexOf(targetDomain);
+    
+    newOrder.splice(draggedIndex, 1);
+    newOrder.splice(targetIndex, 0, draggedDomain);
+    
+    setDomainOrder(newOrder);
+    setDraggedDomain(null);
+    
+    // Save domain order to AsyncStorage
+    try {
+      AsyncStorage.setItem('domainOrder', JSON.stringify(newOrder));
+    } catch (e) {
+      console.error('Failed to save domain order:', e);
+    }
   };
 
   // ─── Today tasks ──────────────────────────────────────────────────────────
@@ -595,6 +641,11 @@ export default function App() {
                       <Text style={styles.stepBtnText}>+</Text>
                     </TouchableOpacity>
                   </View>
+                  <View style={styles.goalProgressRow}>
+                    <View style={styles.progressBarTrack}>
+                      <View style={[styles.progressBarFill, { width: `${goal?.progress || 0}%` }]} />
+                    </View>
+                  </View>
                   <Text style={styles.chevron}>{isExpanded ? '▼' : '▶'}</Text>
                 </View>
               </TouchableOpacity>
@@ -610,19 +661,11 @@ export default function App() {
                     multiline
                     textAlignVertical="top"
                   />
-                  <View style={styles.goalProgressRow}>
-                    <View style={styles.progressBarTrack}>
-                      <View style={[styles.progressBarFill, { width: `${goal?.progress || 0}%` }]} />
-                    </View>
-                  </View>
                 </View>
               )}
             </View>
           );
         })}
-        <TouchableOpacity style={styles.saveButton} onPress={() => saveData()}>
-          <Text style={styles.saveButtonText}>Save Goals</Text>
-        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -655,21 +698,27 @@ export default function App() {
         </View>
         
         <ScrollView style={styles.scroll}>
-          {LIFE_DOMAINS.map((domain) => {
+          {domainOrder.map((domainName) => {
+            const domain = LIFE_DOMAINS.find(d => d.name === domainName);
+            if (!domain) return null;
+            
             const list = sortedTasks(domain.name);
             const isExpanded = expandedDomains[domain.name];
             const count = list.length;
             const doneCount = list.filter((t) => tasks[t.id]).length;
             const allDone = count > 0 && doneCount === count;
+            const isDragging = draggedDomain === domain.name;
             
             return (
-              <View key={domain.name} style={styles.domainSection}>
+              <View key={domain.name} style={[styles.domainSection, isDragging && styles.domainSectionDragging]}>
                 <TouchableOpacity 
                   style={styles.domainHeader}
                   onPress={() => toggleDomain(domain.name)}
+                  onLongPress={() => handleDragStart(domain.name)}
+                  onPressIn={() => { if (draggedDomain) handleDrop(domain.name); }}
                 >
                   <View style={styles.domainName}>
-                    <Text style={styles.domainIcon}>{domain.icon}</Text>
+                    <Text style={styles.domainIcon}>{isDragging ? '⠿' : domain.icon}</Text>
                     <Text style={styles.domainText}>{domain.name}</Text>
                   </View>
                   <View style={styles.domainMeta}>
@@ -773,9 +822,6 @@ export default function App() {
               </View>
             );
           })}
-          <TouchableOpacity style={styles.saveButton} onPress={() => saveData()}>
-            <Text style={styles.saveButtonText}>Save Day</Text>
-          </TouchableOpacity>
         </ScrollView>
       </View>
     );
@@ -1141,13 +1187,16 @@ const styles = StyleSheet.create({
 
   // Domain Sections
   domainSection: { marginHorizontal: 0, marginBottom: 6 },
+  domainSectionDragging: { opacity: 0.8, borderWidth: 2, borderColor: COLORS.accent },
   domainHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14 },
   domainName: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   domainIcon: { fontSize: 15 },
   domainText: { fontSize: 13, fontWeight: '600', color: COLORS.text },
   domainMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   domainCount: { backgroundColor: COLORS.surface, paddingVertical: 2, paddingHorizontal: 7, borderRadius: 99, borderWidth: 1, borderColor: COLORS.border },
+  domainCountDone: { backgroundColor: 'rgba(34,200,122,0.15)', borderColor: COLORS.green },
   domainCountText: { fontSize: 10, color: COLORS.muted },
+  domainCountTextDone: { color: COLORS.green, fontWeight: 'bold' },
   priorityBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   priorityBadgeText: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   chevron: { color: COLORS.muted, fontSize: 10 },
@@ -1171,12 +1220,12 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
 
   // Progress
-  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  stepBtn: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
-  stepBtnText: { color: COLORS.text, fontSize: 18, fontWeight: 'bold' },
-  progressText: { color: COLORS.accent, fontSize: 16, fontWeight: 'bold', minWidth: 50, textAlign: 'center' },
-  progressBar: { height: 6, backgroundColor: COLORS.border, borderRadius: 3, marginTop: 6, overflow: 'hidden' },
-  progressBarFill: { height: 6, backgroundColor: COLORS.accent },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  stepBtn: { backgroundColor: COLORS.surface, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  stepBtnText: { color: COLORS.text, fontSize: 14, fontWeight: 'bold' },
+  progressText: { color: COLORS.accent, fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' },
+  progressBar: { height: 4, backgroundColor: COLORS.border, borderRadius: 3, marginTop: 4, overflow: 'hidden' },
+  progressBarFill: { height: 4, backgroundColor: COLORS.accent },
 
   // Date nav
   dateNav: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
@@ -1219,18 +1268,18 @@ const styles = StyleSheet.create({
   reminderClearText: { color: COLORS.muted, fontSize: 13 },
 
   // Goals
-  goalCard: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 12, marginBottom: 6 },
+  goalCard: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 8, marginBottom: 4 },
   goalCardDim: { opacity: 0.5 },
   goalDomainRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  goalDomainName: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
-  goalDomainText: { fontSize: 13, fontWeight: '600', color: COLORS.text },
-  goalPlaceholderInline: { fontSize: 10, color: COLORS.muted, fontStyle: 'italic', marginLeft: 4 },
-  goalHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  goalExpanded: { marginTop: 8 },
-  goalInput: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 40, fontSize: 13 },
-  goalProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  progressBarTrack: { flex: 1, height: 5, backgroundColor: COLORS.dim, borderRadius: 99, overflow: 'hidden' },
-  progressBarFill: { height: 5, backgroundColor: COLORS.accent },
+  goalDomainName: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 },
+  goalDomainText: { fontSize: 12, fontWeight: '600', color: COLORS.text },
+  goalPlaceholderInline: { fontSize: 9, color: COLORS.muted, fontStyle: 'italic', marginLeft: 4 },
+  goalHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  goalExpanded: { marginTop: 6 },
+  goalInput: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 30, fontSize: 12 },
+  goalProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 6 },
+  progressBarTrack: { width: 60, height: 4, backgroundColor: COLORS.dim, borderRadius: 99, overflow: 'hidden' },
+  progressBarFill: { height: 4, backgroundColor: COLORS.accent },
 
   // Somatic
   question: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 12, textAlign: 'center' },
