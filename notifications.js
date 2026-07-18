@@ -1,9 +1,6 @@
 import * as Notifications from 'expo-notifications';
-import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND-NOTIFICATION-TASK';
 
 const BREATH_CHANNEL_ID = 'breath-reminders';
 const TASK_CHANNEL_ID = 'task-reminders';
