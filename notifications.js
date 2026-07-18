@@ -110,6 +110,7 @@ export async function scheduleTaskReminder(taskText, hour, minute) {
       title: 'Task Reminder',
       body: taskText || 'Time for your task',
       sound: true,
+      data: { type: 'task_reminder' },
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
@@ -141,4 +142,22 @@ export async function getScheduledNotificationsCount() {
   } catch (e) {
     return -1;
   }
+}
+
+/**
+ * Schedule an immediate test notification to verify notifications are working.
+ * Useful for testing after setting up task reminders.
+ */
+export async function scheduleTestNotification() {
+  const id = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: 'Test Notification',
+      body: 'Task reminders are working! You should receive task notifications at your scheduled times.',
+      sound: true,
+    },
+    trigger: {
+      seconds: 1,
+    },
+  });
+  return id;
 }

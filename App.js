@@ -26,6 +26,7 @@ import {
   scheduleTaskReminder,
   cancelTaskReminder,
   getScheduledNotificationsCount,
+  scheduleTestNotification,
 } from './notifications';
 
 const COLORS = {
@@ -1041,6 +1042,12 @@ export default function App() {
             <TouchableOpacity style={styles.notifDiagRefresh} onPress={() => getScheduledNotificationsCount().then(n => setScheduledCount(n)).catch(() => setScheduledCount(-1))}>
               <Text style={styles.notifDiagRefreshText}>Re-check now</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={styles.notifDiagTest} onPress={async () => {
+              await scheduleTestNotification();
+              Alert.alert('Test Sent', 'A test notification should arrive in 1 second. If you don\'t see it, check your notification permissions.');
+            }}>
+              <Text style={styles.notifDiagTestText}>Send test notification</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -1371,24 +1378,37 @@ const styles = StyleSheet.create({
 
   // Time Picker Modal
   pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  pickerSheet: { backgroundColor: COLORS.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '85%' },
-  pickerTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.text, textAlign: 'center', marginBottom: 12 },
-  pickerPreview: { backgroundColor: COLORS.card, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: COLORS.border },
-  pickerPreviewText: { fontSize: 28, fontWeight: 'bold', color: COLORS.accent2 },
-  pickerSectionLabel: { fontSize: 10, color: COLORS.muted, fontWeight: '600', letterSpacing: 1, marginBottom: 8, marginTop: 4 },
-  pickerGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 14 },
-  pickerCell: { width: '23%', backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginBottom: 6 },
+  pickerSheet: { backgroundColor: COLORS.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 12, maxHeight: '80%' },
+  pickerTitle: { fontSize: 12, fontWeight: 'bold', color: COLORS.text, textAlign: 'center', marginBottom: 8 },
+  pickerPreview: { backgroundColor: COLORS.card, borderRadius: 10, paddingVertical: 8, alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: COLORS.border },
+  pickerPreviewText: { fontSize: 20, fontWeight: 'bold', color: COLORS.accent2 },
+  pickerSectionLabel: { fontSize: 9, color: COLORS.muted, fontWeight: '600', letterSpacing: 1, marginBottom: 6, marginTop: 4 },
+  pickerGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 10 },
+  pickerCell: { width: '23%', backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 6, paddingVertical: 8, alignItems: 'center', marginBottom: 4 },
   pickerCellActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  pickerCellText: { color: COLORS.text, fontSize: 14, fontWeight: '600' },
+  pickerCellText: { color: COLORS.text, fontSize: 12, fontWeight: '600' },
   pickerCellTextActive: { color: COLORS.bg },
-  ampmRow: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 18 },
-  ampmBtn: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 99, paddingVertical: 10, paddingHorizontal: 28 },
+  ampmRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 12 },
+  ampmBtn: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 99, paddingVertical: 6, paddingHorizontal: 20 },
   ampmBtnActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  ampmBtnText: { color: COLORS.muted, fontSize: 14, fontWeight: 'bold' },
+  ampmBtnText: { color: COLORS.muted, fontSize: 12, fontWeight: 'bold' },
   ampmBtnTextActive: { color: COLORS.bg },
-  pickerActions: { flexDirection: 'row', gap: 10 },
-  pickerCancelBtn: { flex: 1, backgroundColor: COLORS.card, borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
-  pickerCancelText: { color: COLORS.muted, fontSize: 14, fontWeight: '600' },
-  pickerConfirmBtn: { flex: 1, backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  pickerConfirmText: { color: COLORS.bg, fontSize: 14, fontWeight: 'bold' },
+  pickerActions: { flexDirection: 'row', gap: 8 },
+  pickerCancelBtn: { flex: 1, backgroundColor: COLORS.card, borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
+  pickerCancelText: { color: COLORS.muted, fontSize: 12, fontWeight: '600' },
+  pickerConfirmBtn: { flex: 1, backgroundColor: COLORS.accent, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  pickerConfirmText: { color: COLORS.bg, fontSize: 12, fontWeight: 'bold' },
+  
+  // Notification Diagnostics
+  notifDiagCard: { backgroundColor: COLORS.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: COLORS.border, marginTop: 8 },
+  notifDiagTitle: { fontSize: 12, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
+  notifDiagLine: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  notifDiagHint: { fontSize: 10, color: COLORS.muted },
+  notifDiagBold: { fontSize: 10, fontWeight: 'bold', color: COLORS.accent },
+  notifDiagBtn: { backgroundColor: COLORS.accent, borderRadius: 8, paddingVertical: 8, alignItems: 'center', marginTop: 8 },
+  notifDiagBtnText: { color: COLORS.bg, fontSize: 11, fontWeight: 'bold' },
+  notifDiagRefresh: { backgroundColor: COLORS.surface, borderRadius: 8, paddingVertical: 8, alignItems: 'center', marginTop: 6, borderWidth: 1, borderColor: COLORS.border },
+  notifDiagRefreshText: { color: COLORS.muted, fontSize: 10, fontWeight: '600' },
+  notifDiagTest: { backgroundColor: COLORS.green, borderRadius: 8, paddingVertical: 8, alignItems: 'center', marginTop: 6 },
+  notifDiagTestText: { color: COLORS.bg, fontSize: 10, fontWeight: 'bold' },
 });
