@@ -1,6 +1,9 @@
 import * as Notifications from 'expo-notifications';
+import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND-NOTIFICATION-TASK';
 
 const BREATH_CHANNEL_ID = 'breath-reminders';
 const TASK_CHANNEL_ID = 'task-reminders';
@@ -14,7 +17,7 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true,
     shouldShowBanner: true,
     shouldShowList: true,
   }),
@@ -31,6 +34,10 @@ async function ensureChannel(channelId, name) {
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#7c6aff',
+      enableVibrate: true,
+      enableLights: true,
+      showBadge: true,
+      sound: 'default',
     });
   } catch (e) {
     // Channel may already exist; ignore.
@@ -77,6 +84,8 @@ export async function scheduleBreathReminder(intervalHours) {
       title: BREATH_NOTIFICATION_TITLE,
       body: 'Tap to log your somatic awareness.',
       sound: true,
+      priority: Notifications.AndroidNotificationPriority.HIGH,
+      sticky: true,
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
@@ -110,6 +119,8 @@ export async function scheduleTaskReminder(taskText, hour, minute) {
       title: 'Task Reminder',
       body: taskText || 'Time for your task',
       sound: true,
+      priority: Notifications.AndroidNotificationPriority.HIGH,
+      sticky: true,
       data: { type: 'task_reminder' },
     },
     trigger: {
@@ -154,6 +165,7 @@ export async function scheduleTestNotification() {
       title: 'Test Notification',
       body: 'Task reminders are working! You should receive task notifications at your scheduled times.',
       sound: true,
+      priority: Notifications.AndroidNotificationPriority.HIGH,
     },
     trigger: {
       seconds: 1,
