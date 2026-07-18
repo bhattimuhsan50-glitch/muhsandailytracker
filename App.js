@@ -151,12 +151,14 @@ const TimePickerModal = ({ visible, initialHour, initialMinute, onClose, onConfi
 
           <View style={styles.ampmRow}>
             <TouchableOpacity
+              key="am"
               style={[styles.ampmBtn, !isPM && styles.ampmBtnActive]}
               onPress={() => setIsPM(false)}
             >
               <Text style={[styles.ampmBtnText, !isPM && styles.ampmBtnTextActive]}>AM</Text>
             </TouchableOpacity>
             <TouchableOpacity
+              key="pm"
               style={[styles.ampmBtn, isPM && styles.ampmBtnActive]}
               onPress={() => setIsPM(true)}
             >
@@ -710,12 +712,12 @@ export default function App() {
             const isDragging = draggedDomain === domain.name;
             
             return (
-              <View key={domain.name} style={[styles.domainSection, isDragging && styles.domainSectionDragging]}>
+              <View key={domainName} style={[styles.domainSection, isDragging && styles.domainSectionDragging]}>
                 <TouchableOpacity 
                   style={styles.domainHeader}
-                  onPress={() => toggleDomain(domain.name)}
-                  onLongPress={() => handleDragStart(domain.name)}
-                  onPressIn={() => { if (draggedDomain) handleDrop(domain.name); }}
+                  onPress={() => toggleDomain(domainName)}
+                  onLongPress={() => handleDragStart(domainName)}
+                  onPressIn={() => { if (draggedDomain) handleDrop(domainName); }}
                 >
                   <View style={styles.domainName}>
                     <Text style={styles.domainIcon}>{isDragging ? '⠿' : domain.icon}</Text>
