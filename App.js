@@ -112,7 +112,7 @@ const TimePickerModal = ({ visible, initialHour, initialMinute, onClose, onConfi
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.pickerOverlay}>
         <View style={styles.pickerSheet}>
           <Text style={styles.pickerTitle}>Set reminder time</Text>
@@ -224,7 +224,6 @@ export default function App() {
   const [scheduledCount, setScheduledCount] = useState(Platform.OS === 'web' ? -1 : null);
 
   // Domain reordering state
-  const [draggedDomain, setDraggedDomain] = useState(null);
   const [domainOrder, setDomainOrder] = useState(LIFE_DOMAINS.map(d => d.name));
 
   // Activity heatmap: 28 heat levels (0-4) for the last 28 days.
@@ -394,36 +393,6 @@ export default function App() {
   const toggleDomain = (domain) => {
     LayoutAnimation.easeInEaseOut();
     setExpandedDomains({ ...expandedDomains, [domain]: !expandedDomains[domain] });
-  };
-
-  // Domain reordering functions
-  const handleDragStart = (domainName) => {
-    setDraggedDomain(domainName);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedDomain(null);
-  };
-
-  const handleDrop = (targetDomain) => {
-    if (!draggedDomain || draggedDomain === targetDomain) return;
-    
-    const newOrder = [...domainOrder];
-    const draggedIndex = newOrder.indexOf(draggedDomain);
-    const targetIndex = newOrder.indexOf(targetDomain);
-    
-    newOrder.splice(draggedIndex, 1);
-    newOrder.splice(targetIndex, 0, draggedDomain);
-    
-    setDomainOrder(newOrder);
-    setDraggedDomain(null);
-    
-    // Save domain order to AsyncStorage
-    try {
-      AsyncStorage.setItem('domainOrder', JSON.stringify(newOrder));
-    } catch (e) {
-      console.error('Failed to save domain order:', e);
-    }
   };
 
   // ─── Today tasks ──────────────────────────────────────────────────────────
@@ -701,7 +670,7 @@ export default function App() {
         </View>
         
         <ScrollView style={styles.scroll}>
-          {domainOrder.map((domainName) => {
+          {domainOrder.map((domainName, index) => {
             const domain = LIFE_DOMAINS.find(d => d.name === domainName);
             if (!domain) return null;
             
@@ -710,18 +679,15 @@ export default function App() {
             const count = list.length;
             const doneCount = list.filter((t) => tasks[t.id]).length;
             const allDone = count > 0 && doneCount === count;
-            const isDragging = draggedDomain === domain.name;
             
             return (
-              <View key={domainName} style={[styles.domainSection, isDragging && styles.domainSectionDragging]}>
+              <View key={domainName} style={styles.domainSection}>
                 <TouchableOpacity 
                   style={styles.domainHeader}
                   onPress={() => toggleDomain(domainName)}
-                  onLongPress={() => handleDragStart(domainName)}
-                  onPressIn={() => { if (draggedDomain) handleDrop(domainName); }}
                 >
                   <View style={styles.domainName}>
-                    <Text style={styles.domainIcon}>{isDragging ? '⠿' : domain.icon}</Text>
+                    <Text style={styles.domainIcon}>{domain.icon}</Text>
                     <Text style={styles.domainText}>{domain.name}</Text>
                   </View>
                   <View style={styles.domainMeta}>
@@ -733,6 +699,34 @@ export default function App() {
                         <Text style={[styles.priorityBadgeText, { color: CATEGORY_COLORS[list[0].category] }]}>{list[0].category}</Text>
                       </View>
                     )}
+                    <TouchableOpacity 
+                      style={styles.reorderBtn}
+                      onPress={() => {
+                        if (index > 0) {
+                          const newOrder = [...domainOrder];
+                          [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+                          setDomainOrder(newOrder);
+                          AsyncStorage.setItem('domainOrder', JSON.stringify(newOrder));
+                        }
+                      }}
+                      disabled={index === 0}
+                    >
+                      <Text style={[styles.reorderBtnText, index === 0 && styles.reorderBtnTextDisabled]}>▲</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.reorderBtn}
+                      onPress={() => {
+                        if (index < domainOrder.length - 1) {
+                          const newOrder = [...domainOrder];
+                          [newOrder[index + 1], newOrder[index]] = [newOrder[index], newOrder[index + 1]];
+                          setDomainOrder(newOrder);
+                          AsyncStorage.setItem('domainOrder', JSON.stringify(newOrder));
+                        }
+                      }}
+                      disabled={index === domainOrder.length - 1}
+                    >
+                      <Text style={[styles.reorderBtnText, index === domainOrder.length - 1 && styles.reorderBtnTextDisabled]}>▼</Text>
+                    </TouchableOpacity>
                     <Text style={styles.chevron}>{isExpanded ? '▼' : '▶'}</Text>
                   </View>
                 </TouchableOpacity>
@@ -1199,16 +1193,18 @@ const styles = StyleSheet.create({
 
   // Domain Sections
   domainSection: { marginHorizontal: 0, marginBottom: 6 },
-  domainSectionDragging: { opacity: 0.8, borderWidth: 2, borderColor: COLORS.accent },
   domainHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14 },
   domainName: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   domainIcon: { fontSize: 15 },
   domainText: { fontSize: 13, fontWeight: '600', color: COLORS.text },
-  domainMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  domainMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   domainCount: { backgroundColor: COLORS.surface, paddingVertical: 2, paddingHorizontal: 7, borderRadius: 99, borderWidth: 1, borderColor: COLORS.border },
   domainCountDone: { backgroundColor: 'rgba(34,200,122,0.15)', borderColor: COLORS.green },
   domainCountText: { fontSize: 10, color: COLORS.muted },
   domainCountTextDone: { color: COLORS.green, fontWeight: 'bold' },
+  reorderBtn: { padding: 4 },
+  reorderBtnText: { fontSize: 12, color: COLORS.muted },
+  reorderBtnTextDisabled: { color: COLORS.dim },
   priorityBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   priorityBadgeText: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   chevron: { color: COLORS.muted, fontSize: 10 },
@@ -1280,18 +1276,18 @@ const styles = StyleSheet.create({
   reminderClearText: { color: COLORS.muted, fontSize: 13 },
 
   // Goals
-  goalCard: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 8, marginBottom: 4 },
+  goalCard: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, padding: 6, marginBottom: 3 },
   goalCardDim: { opacity: 0.5 },
   goalDomainRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  goalDomainName: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 },
-  goalDomainText: { fontSize: 12, fontWeight: '600', color: COLORS.text },
-  goalPlaceholderInline: { fontSize: 9, color: COLORS.muted, fontStyle: 'italic', marginLeft: 4 },
-  goalHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  goalExpanded: { marginTop: 6 },
-  goalInput: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 30, fontSize: 12 },
+  goalDomainName: { flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 },
+  goalDomainText: { fontSize: 11, fontWeight: '600', color: COLORS.text },
+  goalPlaceholderInline: { fontSize: 8, color: COLORS.muted, fontStyle: 'italic', marginLeft: 3 },
+  goalHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  goalExpanded: { marginTop: 4 },
+  goalInput: { backgroundColor: COLORS.surface, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 4, color: COLORS.text, borderWidth: 1, borderColor: COLORS.border, minHeight: 25, fontSize: 11 },
   goalProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 6 },
-  progressBarTrack: { width: 100, height: 10, backgroundColor: COLORS.dim, borderRadius: 99, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.border },
-  progressBarFill: { height: 10, backgroundColor: COLORS.accent },
+  progressBarTrack: { width: 100, height: 10, backgroundColor: COLORS.dim, borderRadius: 99, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.border, minWidth: 100 },
+  progressBarFill: { height: 10, backgroundColor: COLORS.accent, minWidth: 0 },
 
   // Somatic
   question: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 12, textAlign: 'center' },
@@ -1380,8 +1376,8 @@ const styles = StyleSheet.create({
   navDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: COLORS.accent, marginTop: 2, shadowColor: COLORS.accent, shadowOpacity: 0.8, shadowRadius: 4, elevation: 4 },
 
   // Time Picker Modal
-  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  pickerSheet: { backgroundColor: COLORS.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 12, maxHeight: '80%' },
+  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end', zIndex: 1000 },
+  pickerSheet: { backgroundColor: COLORS.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 12, maxHeight: '80%', zIndex: 1001 },
   pickerTitle: { fontSize: 12, fontWeight: 'bold', color: COLORS.text, textAlign: 'center', marginBottom: 8 },
   pickerPreview: { backgroundColor: COLORS.card, borderRadius: 10, paddingVertical: 8, alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: COLORS.border },
   pickerPreviewText: { fontSize: 20, fontWeight: 'bold', color: COLORS.accent2 },
