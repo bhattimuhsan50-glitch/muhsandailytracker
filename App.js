@@ -588,7 +588,7 @@ export default function App() {
 
   const openBatterySettings = () => {
     if (Platform.OS === 'web') {
-      Alert.alert('Notifications', 'Battery settings are only available on native platforms.');
+      Alert.alert('Notifications', 'Battery settings are only available on native platforms. This feature will work on Android.');
       return;
     }
     if (Platform.OS !== 'android') {
@@ -649,7 +649,7 @@ export default function App() {
                       <View style={[styles.progressBarFill, { width: `${goal?.progress || 0}%` }]} />
                     </View>
                   </View>
-                  {Platform.OS !== 'web' && <Text style={styles.chevron}>{isExpanded ? '▼' : '▶'}</Text>}
+                  <Text style={styles.chevron}>{isExpanded ? '▼' : '▶'}</Text>
                 </View>
               </TouchableOpacity>
 
@@ -1026,30 +1026,33 @@ export default function App() {
         <Text style={styles.helperText}>Use 2m to test that a notification actually arrives.</Text>
 
         <View style={styles.divider} />
-        {Platform.OS !== 'web' && (
-          <View style={styles.notifDiagCard}>
-            <Text style={styles.notifDiagTitle}>Notification Diagnostics</Text>
-            <View style={styles.notifDiagLine}>
-              <Text style={styles.notifDiagHint}>Scheduled alarms: </Text>
-              <Text style={styles.notifDiagBold}>{scheduledCount === null ? 'Loading...' : scheduledCount === -1 ? 'Not available' : scheduledCount}</Text>
-            </View>
-            <Text style={styles.notifDiagHint}>
-              {scheduledCount === 0 ? 'No alarms scheduled. Force-stopping the app can wipe them.' : scheduledCount > 0 ? 'Alarms are registered with the OS.' : 'Check your notification permissions.'}
-            </Text>
-            <TouchableOpacity style={styles.notifDiagBtn} onPress={openBatterySettings}>
-              <Text style={styles.notifDiagBtnText}>Keep reminders alive (open settings)</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.notifDiagRefresh} onPress={() => getScheduledNotificationsCount().then(n => setScheduledCount(n)).catch(() => setScheduledCount(-1))}>
-              <Text style={styles.notifDiagRefreshText}>Re-check now</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.notifDiagTest} onPress={async () => {
-              await scheduleTestNotification();
-              Alert.alert('Test Sent', 'A test notification should arrive in 1 second. If you don\'t see it, check your notification permissions.');
-            }}>
-              <Text style={styles.notifDiagTestText}>Send test notification</Text>
-            </TouchableOpacity>
+        <View style={styles.divider} />
+        <View style={styles.notifDiagCard}>
+          <Text style={styles.notifDiagTitle}>Notification Diagnostics</Text>
+          <View style={styles.notifDiagLine}>
+            <Text style={styles.notifDiagHint}>Scheduled alarms: </Text>
+            <Text style={styles.notifDiagBold}>{scheduledCount === null ? 'Loading...' : scheduledCount === -1 ? 'Not available' : scheduledCount}</Text>
           </View>
-        )}
+          <Text style={styles.notifDiagHint}>
+            {scheduledCount === 0 ? 'No alarms scheduled. Force-stopping the app can wipe them.' : scheduledCount > 0 ? 'Alarms are registered with the OS.' : 'Check your notification permissions.'}
+          </Text>
+          {Platform.OS !== 'web' && (
+            <>
+              <TouchableOpacity style={styles.notifDiagBtn} onPress={openBatterySettings}>
+                <Text style={styles.notifDiagBtnText}>Keep reminders alive (open settings)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.notifDiagTest} onPress={async () => {
+                await scheduleTestNotification();
+                Alert.alert('Test Sent', 'A test notification should arrive in 1 second. If you don\'t see it, check your notification permissions.');
+              }}>
+                <Text style={styles.notifDiagTestText}>Send test notification</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          <TouchableOpacity style={styles.notifDiagRefresh} onPress={() => getScheduledNotificationsCount().then(n => setScheduledCount(n)).catch(() => setScheduledCount(-1))}>
+            <Text style={styles.notifDiagRefreshText}>Re-check now</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </View>
   );
